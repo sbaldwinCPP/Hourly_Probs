@@ -28,7 +28,6 @@ except ModuleNotFoundError as err:
     input(str(err) +' \n Press enter to exit')
     
 #%% Functions
-
 #%% File selections
 
 def Get_Met():
@@ -72,14 +71,46 @@ def Get_Crit(Targdir):
 def Read_Met(paths):
     '''
     reads single or multiple met data .csv files and combines if mulpiple
+    added option to load .txt format
     '''
     print('Reading met file...')
+    
+    met_ext=os.path.splitext(paths[0])[1]
     met=pd.DataFrame()
-    for file in paths:
-        data = pd.read_csv(file,skiprows=2,header=0) 
-        met = met.append(data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']].copy())
-        
-    met.columns=('Y','M','D','H','WD','WS')
+    
+    if met_ext=='.csv':
+        try:
+            for file in paths:
+                data = pd.read_csv(file,skiprows=2,header=0) 
+                met = met.append(data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']].copy())
+            met.columns=('Y','M','D','H','WD','WS')
+        except Exception as err:
+            easygui.msgbox(msg="Issue loading met file: {}".format(err))
+            sys.exit()
+            
+    elif met_ext=='.txt':
+        try:
+            data = pd.read_table(paths[0],skiprows=3,header=None)
+            data.columns=['Day',
+                          'Month',
+                          'Year',
+                          'Hour',
+                          'Temp',
+                          'Hmds',
+                          'Wind Direction',
+                          'Wind Speed',
+                          'WB',
+                          'CT_LR',
+                          'CT_T',
+                          ]
+            met=data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']].copy()
+            met.columns=('Y','M','D','H','WD','WS')  
+        except Exception as err:
+            easygui.msgbox(msg="Issue loading met file: {}".format(err))
+            sys.exit()
+    else: 
+        easygui.msgbox(msg='File extension not recognized, program will now crash')
+        sys.exit()
     return met
 
 def Read_Crit(path):
@@ -107,7 +138,8 @@ def Read_Fit(path):
                      header=None,
                      encoding='latin-1')
         except Exception as err:
-            easygui.msgbox(msg="Issue loading fit file, check special character format: {}".format(err))       
+            easygui.msgbox(msg="Issue loading fit file, check special character format: {}".format(err))   
+            sys.exit()
     elif fit_ext=='.xlsx': 
         try:
             fits=pd.read_excel(path, 
@@ -116,8 +148,10 @@ def Read_Fit(path):
                      usecols=range(17))
         except Exception as err:
             easygui.msgbox(msg="Issue loading fit file: {}".format(err))
+            sys.exit()
     else: 
-        easygui.msgbox(msg='File extension not recognized, program will now crash')  
+        easygui.msgbox(msg='File extension not recognized, program will now crash')
+        sys.exit()
         
     fits.columns=('ProjNum',
                   'RunNum',
@@ -241,15 +275,22 @@ def All_Probs(fit,crit,hrly):
     # second loop to fill out results
     for r in runs:
         runnum=r[:3]
+        runlet=r[len(r)-1]
+        cmax=fit[fit.RunID==r].Cm.values.astype(int)
+        wdc=fit[fit.RunID==r].WDc.values.astype(int)
+        wsc=fit[fit.RunID==r].WSc.values
+        
         series=hrly[r]
+        
         for c in crits:
             ID=str(r)+str(c)
             data.loc[ID,'Prob']=Calc_Prob(series,c)
             data.loc[ID,'RunNum']=runnum
+            data.loc[ID,'RunLet']=runlet
             data.loc[ID,'Crit']=c
-            #   add code to fill in fit parameters, not needed yet
-            #
-
+            data.loc[ID,'Cmax']=cmax
+            data.loc[ID,'WDc']=wdc
+            data.loc[ID,'WSc']=wsc
             
     data.Hrs=data.Prob*365*24 
     return data
@@ -257,83 +298,116 @@ def All_Probs(fit,crit,hrly):
 
 #%% Extras and QA
     
-def Calc_DV(series, DV):
+def Calc_DV(s, DV):
     """
     Calculate design value for a series of values given DV in percent.
     e.g. for 1% design value DV=1
     """
-    print('Computing {}% value...'.format(DV))
-    series=cleanup(series)  #may want to cleanup outside/before this function
+    #print('Computing {}% value...'.format(DV))
+    #series=cleanup(series)  #may want to cleanup outside/before this function
+    series=s.copy()
     series.sort_values(inplace=True)
     series=series.reset_index(drop=True)
     val=round(series.index.size*(1-(DV/100)))
-    return series[val]  
+    return round(series[val],2)
 
 
 def MetQA(met):
     df=met.copy()
     n=len(df)
+    print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
-    c=sum(df.WD==999)
+    #data QA
+    print('\nThe following data has been converted zero WS:')
+    # check for 999 or WD greater than 360 
+    c=sum(df.WD>360)
     p=round(c/n*100,2)
     print("{} 999's in WD ({}%)".format(c,p))
-    df.loc[df[df.WD==999].index,'WS']=0
+    df.loc[df[df.WD==999].index,['WS','WD']]=0,999
     
+    # check for empty cells in WD
     c=sum(df.WD.isnull())
     p=round(c/n*100,2)
-    print("{} nan's in WD ({}%)".format(c,p))
+    print("{} NaN's in WD ({}%)".format(c,p))
     df.loc[df[df.WD.isnull()].index,['WS','WD']]=0,999
     
+    # check for 999 in WS
     c=sum(df.WS==999)
     p=round(c/n*100,2)
     print("{} 999's in WS ({}%)".format(c,p))
     df.loc[df[df.WS==999].index,'WS']=0
     
+    # check for empty cells in WS
     c=sum(df.WS.isnull())
     p=round(c/n*100,2)
-    print("{} nan's in WS ({}%)".format(c,p))
+    print("{} NaN's in WS ({}%)".format(c,p))
     df.WS=df.WS.fillna(0)
-
-    print('{} becalmed hours (WS=0)'.format(sum(df.WS==0)))
-    print('{} calm hours (WS<1)'.format(sum(df.WS<1)))
     
-    #   add any addtl QA stats and checks here
-    #
-    #
+    # check for outliers in WS
+    c=sum(df.WS>45)
+    p=round(c/n*100,2)
+    print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
+    df.loc[df[df.WS>45].index,['WS','WD']]=0,999
+    
+    # Stats
+    print('\nFinal met data stats:')
+    # Zero Wind
+    c=sum(df.WS==0)
+    p=round(c/n*100,2)
+    print('{} zero hours (WS=0) ({}%)'.format(c,p))
+    
+    # Calm Winds
+    c=sum(df.WS<1)
+    p=round(c/n*100,2)
+    print('{} calm hours (WS<1) ({}%)'.format(c,p))
+    
+    # Max WS
+    print('Max WS is: {} m/s'.format(max(df.WS)))
+    
+    # 1% Wind
+    DV=1
+    print('{}% WS is: {} m/s'.format(DV,Calc_DV(df.WS,DV)))
+    # 5% Wind
+    DV=5
+    print('{}% WS is: {} m/s'.format(DV,Calc_DV(df.WS,DV)))
+
     df.reset_index(drop=True,inplace=True)
-    return df
+    
+    YN=easygui.ynbox('See met data stats in command window.\nDo you want to continue?')
+    if YN: return df
+    else: sys.exit()
     
 
 #%% Startup & File selection
-print('Use GUI to select files...')    
+print('Use GUI to select met data file(s)...')    
 
 metpaths,td=Get_Met()
+met=Read_Met(metpaths)
+met_QA= MetQA(met)
+
+print('Use GUI to select fit and crit files...') 
 fitpath=Get_Fit(td)
 critpath=Get_Crit(td)
 
+label=easygui.enterbox('Enter a label for output file:')
+if label is None: sys.exit()
+
 #%% Load data from files
-t0 = datetime.datetime.now()
-
-print('Reading input files...')    
-
-met=Read_Met(metpaths)
+t0 = datetime.datetime.now() 
+print('Reading fit and crit files...')    
 fit=Read_Fit(fitpath)
 crit=Read_Crit(critpath)
 
 fitname=os.path.basename(fitpath)
 proj=fitname[:fitname.find('fit')]
 
-
-#%% Run calculations
-met_QA= MetQA(met)
+#%% Calculate results
 hrly=Hrly_Runs(fit,met_QA)
 results=All_Probs(fit,crit,hrly)
 
-
 #%% Save
 t1=datetime.datetime.now()
-label=easygui.enterbox('Enter a label for output file:')
-if label is None: sys.exit()
+
 savepath=os.path.join(os.getcwd(),proj+'_probs'+label+'.csv')
 results.to_csv(savepath)
 print('Saved...')
