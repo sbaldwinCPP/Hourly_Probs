@@ -6,6 +6,7 @@ Created on Thu Oct  7 10:41:44 2021
 
 new tool to calculate probabilities from hourly met data
 many functions adapted from HVAC_Emissions_post.py
+and extended_outfiles.py
 """
 
 #%% Import
@@ -169,7 +170,7 @@ def Hourly_Cm(fit,met,runid):
     
 def Calc_Cm(Cmax,WDc,Uc,A,B,WD,U):
     '''
-    Calculate a single normalized concentration given fit parameters and 
+    Calculate normalized concentration given fit parameters and 
     any Wind Speed and Wind Direction (single pair or series)
     '''
     try:
@@ -177,23 +178,32 @@ def Calc_Cm(Cmax,WDc,Uc,A,B,WD,U):
         WD_Bias = WD-WDc
         if WD_Bias > 180: WD_Bias = 360 - WD_Bias
         elif WD_Bias < -180: WD_Bias = WD_Bias + 360
-        Cm = Cmax * np.exp((-A)*((1/U)-(1/Uc))**2) * np.exp(-(((WD_Bias)/B)**2))
+        if U==0: Cm=0
+        else: Cm = Cmax * np.exp((-A)*((1/U)-(1/Uc))**2) * np.exp(-(((WD_Bias)/B)**2))
         return Cm
     except ValueError:
         #if a series of WD and WS are passsed
         Cm=np.zeros(len(WD))   
-        count = 0
         for i in range(len(WD)):
-            if (U[i] == 0) or (WD[i] == 999) or (U[i] == 999 and WD[i] == 999) or (np.isnan(U[i]))  or (np.isnan(WD[i])): 
+            if U[i] == 0: 
                 Cm[i] = 0
-                count+=1
-            elif U[i] != 0 and WD[i] != 999:
+            else:
                 WD_Bias = WD[i]-WDc
                 if WD_Bias > 180: WD_Bias = 360 - WD_Bias
                 elif WD_Bias < -180: WD_Bias = WD_Bias + 360
-                Cm[i] = Cmax * np.exp((-A)*((1/U[i])-(1/Uc))**2) * np.exp(-(((WD_Bias)/B)**2))
-        if count != 0: print('Number of zeroed concentrations: {}'.format(count))        
+                Cm[i] = Cmax * np.exp((-A)*((1/U[i])-(1/Uc))**2) * np.exp(-(((WD_Bias)/B)**2))      
         return Cm 
+    
+    
+def Calc_Prob(series, crit):
+    """
+    Calculate probability for a series of values exceeding given criteria in Cm.
+    """
+    #run=series.name
+    n=len(series)
+    c=sum(series>crit)
+    prob=c/n
+    return prob  
 
 #%% Operations
 
@@ -201,14 +211,49 @@ def Hrly_Runs(fit,met):
     '''
     Calculate max concentrations for all run numbers
     '''
+    print('Calculating hourly Cm...')
     runs=fit.RunID.unique()
     data=pd.DataFrame()
     for r in runs:
         data[r]=Hourly_Cm(fit,met,r)
-        
     return data
         
+def All_Probs(fit,crit,hrly):
+    '''
+    Create results dataframe with probs for each run/crit combo
 
+    '''
+    print('Calculating probs...')
+    runs=fit.RunID.unique()
+    crits=crit.unique()
+    IDs=[]
+    cols=['RunNum','RunLet','Cmax','WDc','WSc','Crit','Prob','Hrs']
+    
+    # first loop to create list of IDs
+    for c in crits:
+        for r in runs:
+            ID=str(r)+str(c)
+            IDs.append(ID)
+            
+    # create empty dataframe to fill 
+    data=pd.DataFrame(index=IDs,columns=cols)      
+            
+    # second loop to fill out results
+    for r in runs:
+        runnum=r[:3]
+        series=hrly[r]
+        for c in crits:
+            ID=str(r)+str(c)
+            data.loc[ID,'Prob']=Calc_Prob(series,c)
+            data.loc[ID,'RunNum']=runnum
+            data.loc[ID,'Crit']=c
+            #   add code to fill in fit parameters, not needed yet
+            #
+
+            
+    data.Hrs=data.Prob*365*24 
+    return data
+    
 
 #%% Extras and QA
     
@@ -224,15 +269,39 @@ def Calc_DV(series, DV):
     val=round(series.index.size*(1-(DV/100)))
     return series[val]  
 
-def cleanup(series):
-    if 999 in series.values:
-        print("Series has 999 in it:")
-        series=series.replace(999,0)
-    if series.isnull().values.any():
-        print("Series has NaN in it:")
-        series=series.fillna(0)
-    #add any other cleanup item here
-    return series
+
+def MetQA(met):
+    df=met.copy()
+    n=len(df)
+    
+    c=sum(df.WD==999)
+    p=round(c/n*100,2)
+    print("{} 999's in WD ({}%)".format(c,p))
+    df.loc[df[df.WD==999].index,'WS']=0
+    
+    c=sum(df.WD.isnull())
+    p=round(c/n*100,2)
+    print("{} nan's in WD ({}%)".format(c,p))
+    df.loc[df[df.WD.isnull()].index,['WS','WD']]=0,999
+    
+    c=sum(df.WS==999)
+    p=round(c/n*100,2)
+    print("{} 999's in WS ({}%)".format(c,p))
+    df.loc[df[df.WS==999].index,'WS']=0
+    
+    c=sum(df.WS.isnull())
+    p=round(c/n*100,2)
+    print("{} nan's in WS ({}%)".format(c,p))
+    df.WS=df.WS.fillna(0)
+
+    print('{} becalmed hours (WS=0)'.format(sum(df.WS==0)))
+    print('{} calm hours (WS<1)'.format(sum(df.WS<1)))
+    
+    #   add any addtl QA stats and checks here
+    #
+    #
+    df.reset_index(drop=True,inplace=True)
+    return df
     
 
 #%% Startup & File selection
@@ -251,11 +320,26 @@ met=Read_Met(metpaths)
 fit=Read_Fit(fitpath)
 crit=Read_Crit(critpath)
 
-data=Hrly_Runs(fit,met)
+fitname=os.path.basename(fitpath)
+proj=fitname[:fitname.find('fit')]
+
+
+#%% Run calculations
+met_QA= MetQA(met)
+hrly=Hrly_Runs(fit,met_QA)
+results=All_Probs(fit,crit,hrly)
+
+
+#%% Save
+t1=datetime.datetime.now()
+label=easygui.enterbox('Enter a label for output file:')
+if label is None: sys.exit()
+savepath=os.path.join(os.getcwd(),proj+'_probs'+label+'.csv')
+results.to_csv(savepath)
+print('Saved...')
 
 #%% done
 print('Done!')
-t1=datetime.datetime.now()
 dt= t1-t0
 dt=dt.seconds
-easygui.msgbox(msg="Done!\n Process took: {} seconds".format(dt))  
+easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savepath))  
