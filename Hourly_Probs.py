@@ -21,6 +21,8 @@ try:
     import numpy as np
     import pandas as pd
     import easygui
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
     
     print('All modules imported')
 
@@ -318,12 +320,12 @@ def MetQA(met):
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
     #data QA
-    print('\nThe following data has been converted zero WS:')
+    print('\nThe following data has been converted to zero WS:')
     # check for 999 or WD greater than 360 
     c=sum(df.WD>360)
     p=round(c/n*100,2)
-    print("{} 999's in WD ({}%)".format(c,p))
-    df.loc[df[df.WD==999].index,['WS','WD']]=0,999
+    print("{} bad hrs in WD ({}%)".format(c,p))
+    df.loc[df[df.WD>360].index,['WS','WD']]=0,999
     
     # check for empty cells in WD
     c=sum(df.WD.isnull())
@@ -349,7 +351,7 @@ def MetQA(met):
     print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
     df.loc[df[df.WS>45].index,['WS','WD']]=0,999
     
-    # Stats
+    # stats
     print('\nFinal met data stats:')
     # Zero Wind
     c=sum(df.WS==0)
@@ -373,9 +375,54 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
+    WindRose(df)
+    
     YN=easygui.ynbox('See met data stats in command window.\nDo you want to continue?')
     if YN: return df
     else: sys.exit()
+    
+    #colorbar setup func
+def cbScale(bounds):
+    cmap=mpl.cm.get_cmap('hsv')
+    s=np.arange(bounds[0],bounds[1]+1,1)
+    norm = mpl.colors.Normalize()
+    norm.autoscale(s)
+    sm = mpl.cm.ScalarMappable(cmap=cmap,norm=norm)
+    sm.set_array([])
+    return sm    
+    
+def WindRose(met):
+    #generate a windrose for QA comparison
+    
+    data = met.copy()            
+    
+    #set plot style 
+    mpl.rcdefaults()            #reset to defaults
+    styles=plt.style.available  #save all plot styles to  list
+    #plt.style.use(styles[4])   #set style
+    plt.style.use(styles[12])    #set style, can be additive, order matters
+
+    
+    #filter data if needed in future
+    #data = data[data.?.isin(ID)
+
+    theta=data.WD*np.pi/180
+    r=data.WS
+    colors=data.M
+    sm=cbScale([min(colors),max(colors)])
+    a=.5
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='polar')
+    ax.set_theta_zero_location('N')
+    ax.set_theta_direction(-1)
+    ax.set_rorigin(-1)
+    
+    ax.scatter(theta, r, c=colors, alpha=.5, cmap=sm.cmap, s=a)
+    cb=plt.colorbar(sm)
+    cb.ax.set_title('Month')
+    plt.show()
+    plt.tight_layout()
     
 
 #%% Startup & File selection
