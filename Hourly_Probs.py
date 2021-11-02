@@ -351,17 +351,26 @@ def MetQA(met):
     print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
     df.loc[df[df.WS>45].index,['WS','WD']]=0,999
     
+    # remove calms
+    c=sum(df.WS<1)
+    p=round(c/n*100,2)
+    print("{} calm hours ({}%)".format(c,p))
+    df.loc[df[df.WS<1].index,['WS','WD']]=0,999
+    
     # stats
     print('\nFinal met data stats:')
+    
     # Zero Wind
     c=sum(df.WS==0)
     p=round(c/n*100,2)
     print('{} zero hours (WS=0) ({}%)'.format(c,p))
     
-    # Calm Winds
-    c=sum(df.WS<1)
-    p=round(c/n*100,2)
-    print('{} calm hours (WS<1) ({}%)'.format(c,p))
+# =============================================================================
+#     # Calm Winds
+#     c=sum(df.WS<1)
+#     p=round(c/n*100,2)
+#     print('{} calm hours (WS<1) ({}%)'.format(c,p))
+# =============================================================================
     
     # Max WS
     print('Max WS is: {} m/s'.format(max(df.WS)))
@@ -375,6 +384,8 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
+    
+    print('\nSee plot, close to continue...')
     WindRose(df)
     
     YN=easygui.ynbox('See met data stats in command window.\nDo you want to continue?')
@@ -416,7 +427,7 @@ def WindRose(met):
     ax = fig.add_subplot(111, projection='polar')
     ax.set_theta_zero_location('N')
     ax.set_theta_direction(-1)
-    ax.set_rorigin(-1)
+    #ax.set_rorigin(-1)
     
     ax.scatter(theta, r, c=colors, alpha=.5, cmap=sm.cmap, s=a)
     cb=plt.colorbar(sm)
@@ -454,8 +465,9 @@ results=All_Probs(fit,crit,hrly)
 
 #%% Save
 t1=datetime.datetime.now()
-
-savepath=os.path.join(os.getcwd(),proj+'_probs'+label+'.csv')
+savefolder=os.path.join(os.getcwd(),'Prob_Out')
+if not os.path.exists(savefolder): os.makedirs(savefolder)
+savepath=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
 results.to_csv(savepath)
 print('Saved...')
 
