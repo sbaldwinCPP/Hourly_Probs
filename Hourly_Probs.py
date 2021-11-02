@@ -319,8 +319,18 @@ def MetQA(met):
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
+    ###     hours outside of specified window - experimental
+    t1,t2=Get_Op_Hrs()
+    print('\nThe following data has been ignored:')
+    c=sum(~df.H.between(t1,t2))
+    p=round(c/n*100,2)
+    print("{} hours outside of operating window ({}-{})".format(c,t1,t2))
+    df=df[df.H.between(t1,t2)]
+    ###
+    
     #data QA
     print('\nThe following data has been converted to zero WS:')
+    
     # check for 999 or WD greater than 360 
     c=sum(df.WD>360)
     p=round(c/n*100,2)
@@ -401,6 +411,16 @@ def cbScale(bounds):
     sm = mpl.cm.ScalarMappable(cmap=cmap,norm=norm)
     sm.set_array([])
     return sm    
+    
+def Get_Op_Hrs():
+    fields=['First hour:','Last hour:']
+    #Defaults
+    values=[0,24]          
+    OpHrs= easygui.multenterbox(msg='Select Operating Hours (0-24):',fields=fields,values=values)
+    if  OpHrs is None: sys.exit()
+    OpHrs = [int(i) for i in OpHrs]
+    return OpHrs
+    
     
 def WindRose(met):
     #generate a windrose for QA comparison
