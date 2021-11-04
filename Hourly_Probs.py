@@ -489,6 +489,7 @@ savefolder=os.path.join(os.getcwd(),'Prob_Out')
 if not os.path.exists(savefolder): os.makedirs(savefolder)
 savepath=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
 results.to_csv(savepath)
+#add option to save hrly
 print('Saved...')
 
 #%% done
