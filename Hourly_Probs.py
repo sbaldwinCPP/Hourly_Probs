@@ -319,14 +319,16 @@ def MetQA(met):
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
-    ###     hours outside of specified window - experimental
-    t1,t2=Get_Op_Hrs()
-    print('\nThe following data has been ignored:')
-    c=sum(~df.H.between(t1,t2))
-    p=round(c/n*100,2)
-    print("{} hours outside of operating window ({}-{})".format(c,t1,t2))
-    df=df[df.H.between(t1,t2)]
-    ###
+# =============================================================================
+#     ###     hours outside of specified window - experimental
+#     t1,t2=Get_Op_Hrs()
+#     print('\nThe following data has been ignored:')
+#     c=sum(~df.H.between(t1,t2))
+#     p=round(c/n*100,2)
+#     print("{} hours outside of operating window ({}-{})".format(c,t1,t2))
+#     df=df[df.H.between(t1,t2)]
+#     ###
+# =============================================================================
     
     #data QA
     print('\nThe following data has been converted to zero WS:')
@@ -361,11 +363,13 @@ def MetQA(met):
     print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
     df.loc[df[df.WS>45].index,['WS','WD']]=0,999
     
-    # remove calms
-    c=sum(df.WS<1)
-    p=round(c/n*100,2)
-    print("{} calm hours ({}%)".format(c,p))
-    df.loc[df[df.WS<1].index,['WS','WD']]=0,999
+# =============================================================================
+#     # remove calms
+#     c=sum(df.WS<1)
+#     p=round(c/n*100,2)
+#     print("{} calm hours ({}%)".format(c,p))
+#     df.loc[df[df.WS<1].index,['WS','WD']]=0,999
+# =============================================================================
     
     # stats
     print('\nFinal met data stats:')
@@ -375,12 +379,10 @@ def MetQA(met):
     p=round(c/n*100,2)
     print('{} zero hours (WS=0) ({}%)'.format(c,p))
     
-# =============================================================================
-#     # Calm Winds
-#     c=sum(df.WS<1)
-#     p=round(c/n*100,2)
-#     print('{} calm hours (WS<1) ({}%)'.format(c,p))
-# =============================================================================
+    # Calm Winds
+    c=sum(df.WS<1)
+    p=round(c/n*100,2)
+    print('{} calm hours (WS<1) ({}%)'.format(c,p))
     
     # Max WS
     print('Max WS is: {} m/s'.format(max(df.WS)))
