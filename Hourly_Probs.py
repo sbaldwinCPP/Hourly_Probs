@@ -17,6 +17,7 @@ try:
     import sys
     import os
     import datetime
+    import pickle
     #non default packages
     import numpy as np
     import pandas as pd
@@ -36,7 +37,7 @@ def Get_Met():
     #starts file selection at location of this script
     inidir = os.getcwd()    #this is better for .exe
     txt='Select met data file(s) to process...'
-    ftyp= '*.csv'
+    ftyp= '*.txt'
     dflt=inidir + "\\" + ftyp
     filepaths = easygui.fileopenbox(default=dflt,msg=txt,filetypes=ftyp,multiple=True)
     try: Targdir=os.path.dirname(filepaths[0])
@@ -174,6 +175,8 @@ def Read_Fit(path):
                   'DateTime')
     
     fits['RunID']=fits.RunNum.astype(str).copy() + fits.RunLet.copy()
+    fits['FitID']= fits.RunID.copy() + fits.PltNum.astype(str).copy()
+    fits=fits.drop(columns='DateTime')
     
     return fits
 
@@ -319,6 +322,8 @@ def MetQA(met):
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
+    
+    # move this to probabilities calculations, always read and calc Cm for all hours
 # =============================================================================
 #     ###     hours outside of specified window - experimental
 #     t1,t2=Get_Op_Hrs()
@@ -375,8 +380,8 @@ def MetQA(met):
     print('\nFinal met data stats:')
     
     # Zero Wind
-    c=sum(df.WS==0)
-    p=round(c/n*100,2)
+    c=sum(df.WS==0)         #count
+    p=round(c/n*100,2)      #percent
     print('{} zero hours (WS=0) ({}%)'.format(c,p))
     
     # Calm Winds
@@ -388,11 +393,9 @@ def MetQA(met):
     print('Max WS is: {} m/s'.format(max(df.WS)))
     
     # 1% Wind
-    DV=1
-    print('{}% WS is: {} m/s'.format(DV,Calc_DV(df.WS,DV)))
+    print('{}% WS is: {} m/s'.format(1,Calc_DV(df.WS,1)))
     # 5% Wind
-    DV=5
-    print('{}% WS is: {} m/s'.format(DV,Calc_DV(df.WS,DV)))
+    print('{}% WS is: {} m/s'.format(5,Calc_DV(df.WS,5)))
 
     df.reset_index(drop=True,inplace=True)
     
@@ -441,9 +444,9 @@ def WindRose(met):
 
     theta=data.WD*np.pi/180
     r=data.WS
-    colors=data.M
+    colors=data.H
     sm=cbScale([min(colors),max(colors)])
-    a=.5
+    a=5
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='polar')
@@ -453,13 +456,13 @@ def WindRose(met):
     
     ax.scatter(theta, r, c=colors, alpha=.5, cmap=sm.cmap, s=a)
     cb=plt.colorbar(sm)
-    cb.ax.set_title('Month')
+    cb.ax.set_title('Hour')
     plt.show()
     plt.tight_layout()
     
 
 #%% Startup & File selection
-print('Use GUI to select met data file(s)...')    
+print('Use GUI to select met data file(s)...') 
 
 metpaths,td=Get_Met()
 met=Read_Met(metpaths)
@@ -472,7 +475,18 @@ critpath=Get_Crit(td)
 label=easygui.enterbox('Enter a label for output file:')
 if label is None: sys.exit()
 
-#%% Load data from files
+#%% Load data from files , WORK IN PROGRESS
+#look for previous save data
+pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
+
+LoadSave=False
+if os.path.isfile(pklpath):             #check if .pkl exists already   
+    LoadSave=easygui.ynbox("Saved data found, do you want to append it?")
+if LoadSave:
+    print('Loading saved data...')
+    with open(pklpath, 'rb') as handle:
+        old_data = pickle.load(handle)
+        
 t0 = datetime.datetime.now() 
 print('Reading fit and crit files...')    
 fit=Read_Fit(fitpath)
@@ -481,9 +495,40 @@ crit=Read_Crit(critpath)
 fitname=os.path.basename(fitpath)
 proj=fitname[:fitname.find('fit')]
 
+#%% Append old data if needed, WORK IN PROGRESS
+old_fit=pd.DataFrame(old_data['fit']).set_index('FitID')
+
+new=fit[~fit.FitID.isin(old_fit.FitID)]
+
+existing=fit[fit.FitID.isin(old_fit.FitID)].set_index('FitID')
+
+updated=existing.compare(old_fit,
+
+
+old_hrly=pd.DataFrame(old_data['hourly'])
+
+old_runs=old_fit.FitID.unique()
+new_runs=fit.RunID.unique()
+
+new_fit=fit[~fit.RunID.isin(old_runs)]
+
+repeat_fit=fit[fit.RunID.isin(old_runs)]
+
+extra_fit=old_fit[~old_fit.RunID.isin(new_runs)]
+
+
+
 #%% Calculate results
 hrly=Hrly_Runs(fit,met_QA)
 results=All_Probs(fit,crit,hrly)
+
+#%% save PKL
+new_data={}
+new_data['hourly']=hrly
+new_data['fit']=fit
+
+with open(pklpath, 'wb') as handle:
+    pickle.dump(new_data, handle)
 
 #%% Save
 t1=datetime.datetime.now()
