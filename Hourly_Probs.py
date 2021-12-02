@@ -176,7 +176,7 @@ def Read_Fit(path):
     
     fits['RunID']=fits.RunNum.astype(str).copy() + fits.RunLet.copy()
     fits['FitID']= fits.RunID.copy() + fits.PltNum.astype(str).copy()
-    fits=fits.drop(columns='DateTime')
+    fits=fits.drop(columns='DateTime') #never gets used, drop when reading
     
     return fits
 
@@ -322,7 +322,6 @@ def MetQA(met):
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
-    
     # move this to probabilities calculations, always read and calc Cm for all hours
 # =============================================================================
 #     ###     hours outside of specified window - experimental
@@ -400,11 +399,13 @@ def MetQA(met):
     df.reset_index(drop=True,inplace=True)
     
     
-    print('\nSee plot, close to continue...')
+    print('\nSee plot and GUI window...')
     WindRose(df)
     
-    YN=easygui.ynbox('See met data stats in command window.\nDo you want to continue?')
-    if YN: return df
+    YN=easygui.ynbox('See windrose plot and met data stats in command window.\nDo you want to continue?')
+    if YN: 
+        plt.close()
+        return df
     else: sys.exit()
     
     #colorbar setup func
@@ -420,12 +421,12 @@ def cbScale(bounds):
 def Get_Op_Hrs():
     fields=['First hour:','Last hour:']
     #Defaults
-    values=[0,24]          
-    OpHrs= easygui.multenterbox(msg='Select Operating Hours (0-24):',fields=fields,values=values)
+    choices=range(24)
+    msg='Select Operating Hours'
+    OpHrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
     if  OpHrs is None: sys.exit()
     OpHrs = [int(i) for i in OpHrs]
     return OpHrs
-    
     
 def WindRose(met):
     #generate a windrose for QA comparison
@@ -472,6 +473,7 @@ print('Use GUI to select fit and crit files...')
 fitpath=Get_Fit(td)
 critpath=Get_Crit(td)
 
+print('Use GUI to enter a label for output file...')
 label=easygui.enterbox('Enter a label for output file:')
 if label is None: sys.exit()
 
@@ -479,13 +481,16 @@ if label is None: sys.exit()
 #look for previous save data
 pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
 
-LoadSave=False
+
 if os.path.isfile(pklpath):             #check if .pkl exists already   
-    LoadSave=easygui.ynbox("Saved data found, do you want to append it?")
-if LoadSave:
+    LoadSave=easygui.ynbox("Saved data found, do you want to update it?")
+else: LoadSave=False
+
+if LoadSave is None: sys.exit()
+elif LoadSave:
     print('Loading saved data...')
     with open(pklpath, 'rb') as handle:
-        old_data = pickle.load(handle)
+        old_dict = pickle.load(handle)
         
 t0 = datetime.datetime.now() 
 print('Reading fit and crit files...')    
@@ -495,48 +500,73 @@ crit=Read_Crit(critpath)
 fitname=os.path.basename(fitpath)
 proj=fitname[:fitname.find('fit')]
 
-#%% Append old data if needed, WORK IN PROGRESS
-old_fit=pd.DataFrame(old_data['fit']).set_index('FitID')
+#%% Append old hourly data if needed, WORK IN PROGRESS
 
-new=fit[~fit.FitID.isin(old_fit.FitID)]
+if LoadSave:
+    # unpack saved data
+    fit_old=old_dict['fit']
+    met_old=old_dict['met']
+    hrly_old=old_dict['hourly']
+    
+    #if anything in met data has changed, re-run all fits
+    if not all(met_old==met_QA):
+        hrly=Hrly_Runs(fit,met_QA)
+        
+    else:
+        # find new runs/fits
+        new_fits=fit[~fit.FitID.isin(fit_old.FitID)].set_index('FitID')
+        new_runs=new_fits.RunID.drop_duplicates()
+        
+        # find fits that exist in both old and new
+        repeats=fit[fit.FitID.isin(fit_old.FitID)].set_index('FitID')
+        check=fit_old[fit_old.FitID.isin(fit.FitID)].set_index('FitID')
+        
+        # find fits that have changed
+        comp=repeats[repeats!=check].dropna(how='all')
+        updated_fitIDs=comp.index
+        updated_runs=repeats.loc[updated_fitIDs].RunID.drop_duplicates()
+        
+        
+        # find runs that have not changed
+        good=repeats[~repeats.RunID.isin(updated_runs)]
+        good_runs=good.RunID.drop_duplicates()
+        
+        # pull hourly data for runs that havent changed
+        good_hrs=hrly_old[good_runs]
+        
+        # calc new and updated hrly data
+        calc_runs=new_runs.append(updated_runs)
+        calc_fits=fit[fit.RunID.isin(calc_runs)]
+        new_hrly=Hrly_Runs(calc_fits,met_QA)
+        
+        # combine old and new hrly data
+        hrly=good_hrs.copy()
+        hrly[new_hrly.columns]=new_hrly.copy()
+    
+else:
+    # if no save data found, run all fits
+    hrly=Hrly_Runs(fit,met_QA)
 
-existing=fit[fit.FitID.isin(old_fit.FitID)].set_index('FitID')
 
-updated=existing.compare(old_fit,
+#%% Calculate probs
 
-
-old_hrly=pd.DataFrame(old_data['hourly'])
-
-old_runs=old_fit.FitID.unique()
-new_runs=fit.RunID.unique()
-
-new_fit=fit[~fit.RunID.isin(old_runs)]
-
-repeat_fit=fit[fit.RunID.isin(old_runs)]
-
-extra_fit=old_fit[~old_fit.RunID.isin(new_runs)]
-
-
-
-#%% Calculate results
-hrly=Hrly_Runs(fit,met_QA)
 results=All_Probs(fit,crit,hrly)
 
-#%% save PKL
-new_data={}
-new_data['hourly']=hrly
-new_data['fit']=fit
+#%% save PKL WORK IN PROGRESS
+new_dict={}
+new_dict['hourly']=hrly
+new_dict['fit']=fit
+new_dict['met']=met_QA
 
 with open(pklpath, 'wb') as handle:
-    pickle.dump(new_data, handle)
+    pickle.dump(new_dict, handle)
 
-#%% Save
+#%% Save probs - might want to add option to save hourly to .csv
 t1=datetime.datetime.now()
-savefolder=os.path.join(os.getcwd(),'Prob_Out')
+savefolder=os.path.join(td,'Prob_Out')
 if not os.path.exists(savefolder): os.makedirs(savefolder)
 savepath=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
 results.to_csv(savepath)
-#add option to save hrly
 print('Saved...')
 
 #%% done
