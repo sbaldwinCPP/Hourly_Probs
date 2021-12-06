@@ -5,8 +5,8 @@ Created on Thu Oct  7 10:41:44 2021
 @author: sbaldwin
 
 new tool to calculate probabilities from hourly met data
-many functions adapted from HVAC_Emissions_post.py
-and extended_outfiles.py
+many functions adapted from HVAC_Emissions_post.py and extended_outfiles.py
+
 """
 
 #%% Import
@@ -142,7 +142,7 @@ def Read_Fit(path):
                      header=None,
                      encoding='latin-1')
         except Exception as err:
-            easygui.msgbox(msg="Issue loading fit file, check special character format: {}".format(err))   
+            easygui.msgbox(msg="Issue loading fit file, check special character format:\n{}".format(err))   
             sys.exit()
     elif fit_ext=='.xlsx': 
         try:
@@ -154,7 +154,7 @@ def Read_Fit(path):
             easygui.msgbox(msg="Issue loading fit file: {}".format(err))
             sys.exit()
     else: 
-        easygui.msgbox(msg='File extension not recognized, program will now crash')
+        easygui.msgbox(msg='File extension not recognized, program will now close')
         sys.exit()
         
     fits.columns=('ProjNum',
