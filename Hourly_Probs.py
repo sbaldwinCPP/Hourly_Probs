@@ -122,6 +122,7 @@ def Read_Crit(path):
     '''
     print('Reading crit file...')
     data=pd.read_excel(path,skiprows=1,header=None)
+    data=data.dropna(how='all') 
     crit=data[0].copy()
     return crit
 
@@ -174,10 +175,16 @@ def Read_Fit(path):
                   'Rec',
                   'DateTime')
     
+    # pre-processing
+    fits=fits.dropna(how='all')             # sometimes empty rows get picked up
+    fits.RunNum=fits.RunNum.astype(int)     # force to int for consistency
+    fits.PltNum=fits.PltNum.astype(int)     # ^
+    fits=fits.drop(columns='DateTime')      # never gets used, drop when reading
+    
+    # create run and fit IDs for lookups
     fits['RunID']=fits.RunNum.astype(str).copy() + fits.RunLet.copy()
     fits['FitID']= fits.RunID.copy() + fits.PltNum.astype(str).copy()
-    fits=fits.drop(columns='DateTime') #never gets used, drop when reading
-    
+
     return fits
 
 #%% Calculations
@@ -279,6 +286,7 @@ def All_Probs(fit,crit,hrly):
             
     # second loop to fill out results
     for r in runs:
+        r=str(r)
         runnum=r[:3]
         runlet=r[len(r)-1]
         cmax=fit[fit.RunID==r].Cm.values.astype(int)
@@ -398,17 +406,16 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
+    if easygui.ynbox('Generate wind rose plot?'):
+        print('Close plot to continue...')
+        WindRose(df)
     
-    print('\nSee plot and GUI window...')
-    WindRose(df)
-    
-    YN=easygui.ynbox('See windrose plot and met data stats in command window.\nDo you want to continue?')
-    if YN: 
+    if easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
         plt.close()
         return df
     else: sys.exit()
     
-    #colorbar setup func
+    #colorbar setup
 def cbScale(bounds):
     cmap=mpl.cm.get_cmap('hsv')
     s=np.arange(bounds[0],bounds[1]+1,1)
@@ -419,8 +426,6 @@ def cbScale(bounds):
     return sm    
     
 def Get_Op_Hrs():
-    fields=['First hour:','Last hour:']
-    #Defaults
     choices=range(24)
     msg='Select Operating Hours'
     OpHrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
@@ -433,21 +438,19 @@ def WindRose(met):
     
     data = met.copy()            
     
-    #set plot style 
-    mpl.rcdefaults()            #reset to defaults
-    styles=plt.style.available  #save all plot styles to  list
-    #plt.style.use(styles[4])   #set style
-    plt.style.use(styles[12])    #set style, can be additive, order matters
-
-    
-    #filter data if needed in future
-    #data = data[data.?.isin(ID)
+# =============================================================================
+#     #set plot style 
+#     mpl.rcdefaults()            #reset to defaults
+#     styles=plt.style.available  #save all plot styles to  list
+#     plt.style.use(styles[4])    #set style
+#     plt.style.use(styles[12])   #set style, can be additive, order matters
+# =============================================================================
 
     theta=data.WD*np.pi/180
     r=data.WS
     colors=data.H
     sm=cbScale([min(colors),max(colors)])
-    a=5
+    a=2
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='polar')
@@ -483,7 +486,7 @@ pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
 
 
 if os.path.isfile(pklpath):             #check if .pkl exists already   
-    LoadSave=easygui.ynbox("Saved data found, do you want to update it?")
+    LoadSave=easygui.ynbox("Saved data found, do you want to append & update it?")
 else: LoadSave=False
 
 if LoadSave is None: sys.exit()
@@ -493,7 +496,7 @@ elif LoadSave:
         old_dict = pickle.load(handle)
         
 t0 = datetime.datetime.now() 
-print('Reading fit and crit files...')    
+#print('Reading fit and crit files...')    
 fit=Read_Fit(fitpath)
 crit=Read_Crit(critpath)
 
@@ -526,6 +529,15 @@ if LoadSave:
         updated_fitIDs=comp.index
         updated_runs=repeats.loc[updated_fitIDs].RunID.drop_duplicates()
         
+        # check for dropped fits in repeat runs
+        repeat_runs=repeats.RunID.drop_duplicates()
+        old_repeats=fit_old[fit_old.RunID.isin(repeat_runs)].set_index('FitID')
+        good_IDs=repeats[~repeats.RunID.isin(updated_runs)].index
+        dropped=old_repeats[~old_repeats.index.isin(good_IDs)]
+        dropped_runs=dropped.RunID.drop_duplicates() 
+        
+        # Append list of updated run to include any runs where a fit was dropped
+        updated_runs=updated_runs.append(dropped_runs)
         
         # find runs that have not changed
         good=repeats[~repeats.RunID.isin(updated_runs)]
@@ -552,7 +564,11 @@ else:
 
 results=All_Probs(fit,crit,hrly)
 
-#%% save PKL WORK IN PROGRESS
+#%% Save
+savefolder=os.path.join(td,'Prob_Out')
+if not os.path.exists(savefolder): os.makedirs(savefolder)
+
+# PKL 
 new_dict={}
 new_dict['hourly']=hrly
 new_dict['fit']=fit
@@ -560,17 +576,23 @@ new_dict['met']=met_QA
 
 with open(pklpath, 'wb') as handle:
     pickle.dump(new_dict, handle)
+print('PKL file Saved...')
 
-#%% Save probs - might want to add option to save hourly to .csv
-t1=datetime.datetime.now()
-savefolder=os.path.join(td,'Prob_Out')
-if not os.path.exists(savefolder): os.makedirs(savefolder)
-savepath=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
-results.to_csv(savepath)
-print('Saved...')
+# hourly Cm 
+hrly_out=met_QA.copy()
+hrly_out[hrly.columns]=hrly
+save_hrly=os.path.join(savefolder,proj+'_hourly.csv')
+hrly_out.to_csv(save_hrly, index=False)
+print('Hourly Cm Saved...')
+
+# probs
+save_probs=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
+results.to_csv(save_probs)
+print('Probs Saved...')
 
 #%% done
+t1=datetime.datetime.now()
 print('Done!')
 dt= t1-t0
 dt=dt.seconds
-easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savepath))  
+easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savefolder))  
