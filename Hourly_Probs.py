@@ -31,15 +31,29 @@ except ModuleNotFoundError as err:
     input(str(err) +' \n Press enter to exit')
     
 #%% Functions
+
+
 #%% File selections
 
 def Get_Met():
     #starts file selection at location of this script
     inidir = os.getcwd()    #this is better for .exe
+    
+# =============================================================================
+#     ####  experiment to make better filebox, force to front of screen
+#     msg='Enter path to working directory\n(Or location to start looking)'
+#     #wdir=easygui.textbox(text=inidir, run=False)
+#     wdir=easygui.multenterbox(msg, msg, fields=['Start here:'], values=[inidir], run=False)
+#     wdir.ui.boxRoot.attributes("-topmost", True)
+#     inidir=wdir.run()[0]
+# =============================================================================
+    
+    
     txt='Select met data file(s) to process...'
     ftyp= '*.txt'
     dflt=inidir + "\\" + ftyp
-    filepaths = easygui.fileopenbox(default=dflt,msg=txt,filetypes=ftyp,multiple=True)
+    filepaths = easygui.fileopenbox(txt, txt, dflt, ftyp, True)
+    
     try: Targdir=os.path.dirname(filepaths[0])
     except TypeError:
         easygui.msgbox(msg='Nothing selected, nothing to do. Goodbye!')
@@ -247,7 +261,7 @@ def Calc_Prob(series, crit):
     """
     #run=series.name
     n=len(series)
-    c=sum(series>crit)
+    c=sum(series>=crit)
     prob=c/n
     return prob  
 
@@ -308,22 +322,42 @@ def All_Probs(fit,crit,hrly):
     data.Hrs=data.Prob*365*24 
     return data
     
-
-#%% Extras and QA
-    
-def Calc_DV(s, DV):
+def Calc_DV(series, DV):
     """
     Calculate design value for a series of values given DV in percent.
-    e.g. for 1% design value DV=1
+    e.g. 1% design value DV=1
     """
-    #print('Computing {}% value...'.format(DV))
-    #series=cleanup(series)  #may want to cleanup outside/before this function
-    series=s.copy()
-    series.sort_values(inplace=True)
-    series=series.reset_index(drop=True)
-    val=round(series.index.size*(1-(DV/100)))
-    return round(series[val],2)
+    s=series.copy()
+    s.sort_values(inplace=True)
+    s=s.reset_index(drop=True)
+    val=round(s.index.size*(1-(DV/100)))
+    return round(s[val],2)
 
+#%% experiment to plot prob as color on windrose 
+def Calc_prob_WS(WS,WD):
+    """
+    Calc % time is exceeded for a specific WD
+    uses global met_QA dataframe
+    """
+    n=len(met_QA)                       # total hours
+    d=met_QA.copy()
+    wd_band=3                           # will take +- deg on either side of WD
+    
+    wdmin=WD-wd_band
+    wdmax=WD+wd_band
+    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
+    
+    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
+    wds[wds<=0]=wds[wds<=0]+360
+    
+    d=d[d.WD.isin(wds)]                 # filter to specific WD
+    c=sum(d.WS>=WS)                     # count # of hrs at or above WS
+    p=c/n*100                           # calc percent of total hours
+        
+    return p
+
+
+#%% Extras and QA
 
 def MetQA(met):
     df=met.copy()
@@ -406,6 +440,9 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
+    #global met_QA
+    #met_QA=df.copy()
+    
     if easygui.ynbox('Generate wind rose plot?'):
         print('Close plot to continue...')
         WindRose(df)
@@ -417,7 +454,7 @@ def MetQA(met):
     
     #colorbar setup
 def cbScale(bounds):
-    cmap=mpl.cm.get_cmap('hsv')
+    cmap=mpl.cm.get_cmap('jet')
     s=np.arange(bounds[0],bounds[1]+1,1)
     norm = mpl.colors.Normalize()
     norm.autoscale(s)
@@ -433,22 +470,30 @@ def Get_Op_Hrs():
     OpHrs = [int(i) for i in OpHrs]
     return OpHrs
     
-def WindRose(met):
+def WindRose(met_QA):
     #generate a windrose for QA comparison
+    data = met_QA[met_QA.WD!=999].copy() 
+    #data = data[data.WS>=1]
     
-    data = met.copy()            
+    #probs stuff
+    WDu=data.WD.unique()
+    WDu.sort()
     
-# =============================================================================
-#     #set plot style 
-#     mpl.rcdefaults()            #reset to defaults
-#     styles=plt.style.available  #save all plot styles to  list
-#     plt.style.use(styles[4])    #set style
-#     plt.style.use(styles[12])   #set style, can be additive, order matters
-# =============================================================================
+    data['prob']=''
+    for wd in WDu:
+        ws_i=data[data.WD==wd].WS.unique()
+        ws_i.sort()
+        for ws in ws_i:
+            print('WD:',wd,' WS:',ws)
+            p=Calc_prob_WS(ws,wd)
+            valid=data[(data.WS==ws) & (data.WD==wd)]
+            data.loc[valid.index,'prob']=p
+
+    data=data.sort_values(by=['prob'])
 
     theta=data.WD*np.pi/180
     r=data.WS
-    colors=data.H
+    colors=data.prob
     sm=cbScale([min(colors),max(colors)])
     a=2
 
@@ -458,11 +503,13 @@ def WindRose(met):
     ax.set_theta_direction(-1)
     #ax.set_rorigin(-1)
     
-    ax.scatter(theta, r, c=colors, alpha=.5, cmap=sm.cmap, s=a)
+    ax.scatter(theta, r, c=colors, alpha=1, cmap=sm.cmap, s=a)
     cb=plt.colorbar(sm)
-    cb.ax.set_title('Hour')
+    cb.ax.set_title('Probability (%)')
     plt.show()
     plt.tight_layout()
+    
+    plt.savefig(os.path.join(td,'QA_windrose.png'))
     
 
 #%% Startup & File selection
@@ -470,7 +517,7 @@ print('Use GUI to select met data file(s)...')
 
 metpaths,td=Get_Met()
 met=Read_Met(metpaths)
-met_QA= MetQA(met)
+met_QA=MetQA(met)
 
 print('Use GUI to select fit and crit files...') 
 fitpath=Get_Fit(td)
