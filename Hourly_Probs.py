@@ -334,15 +334,14 @@ def Calc_DV(series, DV):
     return round(s[val],2)
 
 #%% experiment to plot prob as color on windrose 
-def Calc_prob_WS(WS,WD):
+def Calc_prob_WS(WS, WD, met, wd_band):
     """
     Calc % time is exceeded for a specific WD
-    uses global met_QA dataframe
     """
-    n=len(met_QA)                       # total hours
-    d=met_QA.copy()
-    wd_band=3                           # will take +- deg on either side of WD
+    n=len(met)                          # total hours
+    d=met.copy()
     
+    # take +- deg on either side of WD
     wdmin=WD-wd_band
     wdmax=WD+wd_band
     wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
@@ -419,7 +418,6 @@ def MetQA(met):
     
     # stats
     print('\nFinal met data stats:')
-    
     # Zero Wind
     c=sum(df.WS==0)         #count
     p=round(c/n*100,2)      #percent
@@ -435,13 +433,11 @@ def MetQA(met):
     
     # 1% Wind
     print('{}% WS is: {} m/s'.format(1,Calc_DV(df.WS,1)))
+    
     # 5% Wind
     print('{}% WS is: {} m/s'.format(5,Calc_DV(df.WS,5)))
 
     df.reset_index(drop=True,inplace=True)
-    
-    #global met_QA
-    #met_QA=df.copy()
     
     if easygui.ynbox('Generate wind rose plot?'):
         print('Close plot to continue...')
@@ -452,9 +448,14 @@ def MetQA(met):
         return df
     else: sys.exit()
     
-    #colorbar setup
+    
 def cbScale(bounds):
-    cmap=mpl.cm.get_cmap('jet')
+    # plot settings
+    mpl.rcdefaults()            # reset to defaults
+    styles=plt.style.available  # save all plot styles to  list
+    plt.style.use(styles[12])   # set style
+    
+    cmap='jet'
     s=np.arange(bounds[0],bounds[1]+1,1)
     norm = mpl.colors.Normalize()
     norm.autoscale(s)
@@ -473,39 +474,51 @@ def Get_Op_Hrs():
 def WindRose(met_QA):
     #generate a windrose for QA comparison
     data = met_QA[met_QA.WD!=999].copy() 
-    #data = data[data.WS>=1]
     
     #probs stuff
     WDu=data.WD.unique()
     WDu.sort()
+    wd_band=10  # set deg +- for probability calcs
     
+    # hack to only calc all unique pairs of WS & WD, instead of all hours (slow)
     data['prob']=''
     for wd in WDu:
         ws_i=data[data.WD==wd].WS.unique()
         ws_i.sort()
         for ws in ws_i:
             print('WD:',wd,' WS:',ws)
-            p=Calc_prob_WS(ws,wd)
+            p=Calc_prob_WS(ws,wd,data,wd_band)
             valid=data[(data.WS==ws) & (data.WD==wd)]
             data.loc[valid.index,'prob']=p
-
+    
+    # sort to plot high probs last to show on 'top'
     data=data.sort_values(by=['prob'])
-
+    
+    # polar maths
     theta=data.WD*np.pi/180
     r=data.WS
     colors=data.prob
     sm=cbScale([min(colors),max(colors)])
     a=2
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=(7,6))
     ax = fig.add_subplot(111, projection='polar')
     ax.set_theta_zero_location('N')
     ax.set_theta_direction(-1)
-    #ax.set_rorigin(-1)
-    
+    ax.set_rorigin(-1)
+
     ax.scatter(theta, r, c=colors, alpha=1, cmap=sm.cmap, s=a)
     cb=plt.colorbar(sm)
-    cb.ax.set_title('Probability (%)')
+    title='% Probability that WS is exceeded at WD +-{} degrees'.format(round(wd_band))
+    cb.ax.set_title(title,
+                    fontsize=9,
+                    rotation='vertical',
+                    va='center',
+                    ha='center',
+                    y= .5,
+                    x= 2.5,
+                    )
+
     plt.show()
     plt.tight_layout()
     
@@ -527,10 +540,10 @@ print('Use GUI to enter a label for output file...')
 label=easygui.enterbox('Enter a label for output file:')
 if label is None: sys.exit()
 
-#%% Load data from files , WORK IN PROGRESS
-#look for previous save data
-pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
+#%% Load data from saved files , BETA
 
+# look for previous save data
+pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
 
 if os.path.isfile(pklpath):             #check if .pkl exists already   
     LoadSave=easygui.ynbox("Saved data found, do you want to append & update it?")
@@ -550,7 +563,7 @@ crit=Read_Crit(critpath)
 fitname=os.path.basename(fitpath)
 proj=fitname[:fitname.find('fit')]
 
-#%% Append old hourly data if needed, WORK IN PROGRESS
+#%% Append old hourly data if needed, BETA
 
 if LoadSave:
     # unpack saved data
@@ -558,7 +571,7 @@ if LoadSave:
     met_old=old_dict['met']
     hrly_old=old_dict['hourly']
     
-    #if anything in met data has changed, re-run all fits
+    # if anything in met data has changed, re-run all fits
     if not all(met_old==met_QA):
         hrly=Hrly_Runs(fit,met_QA)
         
