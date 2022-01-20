@@ -441,11 +441,13 @@ def MetQA(met):
     
     if easygui.ynbox('Generate wind rose plot?'):
         print('Close plot to continue...')
-        WindRose(df)
+        probs=WindRose(df)
+        return df, probs
     
-    if easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
+    elif easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
         plt.close()
-        return df
+        return df, None
+    
     else: sys.exit()
     
     
@@ -519,10 +521,10 @@ def WindRose(met_QA):
                     x= 2.5,
                     )
 
-    plt.show()
     plt.tight_layout()
-    
     plt.savefig(os.path.join(td,'QA_windrose.png'))
+    plt.show()
+    return data
     
 
 #%% Startup & File selection
@@ -530,7 +532,7 @@ print('Use GUI to select met data file(s)...')
 
 metpaths,td=Get_Met()
 met=Read_Met(metpaths)
-met_QA=MetQA(met)
+met_QA,probs=MetQA(met)
 
 print('Use GUI to select fit and crit files...') 
 fitpath=Get_Fit(td)
