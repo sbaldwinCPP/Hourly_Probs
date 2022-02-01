@@ -557,8 +557,12 @@ else: LoadSave=False
 if LoadSave is None: sys.exit()
 elif LoadSave:
     print('Loading saved data...')
-    with open(pklpath, 'rb') as handle:
-        old_dict = pickle.load(handle)
+    try:
+        with open(pklpath, 'rb') as handle:
+            old_dict = pickle.load(handle)
+    except AttributeError as err:
+        easygui.msgbox(msg="Issue loading save file: {}".format(err))
+        LoadSave=False
         
 t0 = datetime.datetime.now()   
 fit=Read_Fit(fitpath)
