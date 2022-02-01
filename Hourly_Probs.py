@@ -30,29 +30,15 @@ try:
 except ModuleNotFoundError as err:
     input(str(err) +' \n Press enter to exit')
     
-#%% Functions
-
-
 #%% File selections
 
 def Get_Met():
     #starts file selection at location of this script
     inidir = os.getcwd()    #this is better for .exe
-    
-# =============================================================================
-#     ####  experiment to make better filebox, force to front of screen
-#     msg='Enter path to working directory\n(Or location to start looking)'
-#     #wdir=easygui.textbox(text=inidir, run=False)
-#     wdir=easygui.multenterbox(msg, msg, fields=['Start here:'], values=[inidir], run=False)
-#     wdir.ui.boxRoot.attributes("-topmost", True)
-#     inidir=wdir.run()[0]
-# =============================================================================
-    
-    
     txt='Select met data file(s) to process...'
-    ftyp= '*.txt'
-    dflt=inidir + "\\" + ftyp
-    filepaths = easygui.fileopenbox(txt, txt, dflt, ftyp, True)
+    ftyp='*.txt'        # File type to look for
+    dflt=os.path.join(inidir, ftyp)
+    filepaths=easygui.fileopenbox(txt, txt, dflt, ftyp, True)
     
     try: Targdir=os.path.dirname(filepaths[0])
     except TypeError:
@@ -64,7 +50,7 @@ def Get_Fit(Targdir):
     inidir = Targdir    #look at met data location
     txt='Select fit file to process...'
     ftyp= '*.xls'
-    dflt=inidir + "\\" + ftyp
+    dflt=os.path.join(inidir, ftyp)
     filepath = easygui.fileopenbox(default=dflt,msg=txt,filetypes=ftyp,multiple=False)
     if filepath is None:
         easygui.msgbox(msg='Nothing selected, nothing to do. Goodbye!')
@@ -75,20 +61,19 @@ def Get_Crit(Targdir):
     inidir = Targdir    #look at met data location
     txt='Select crit file to process...'
     ftyp= '*.xlsx'
-    dflt=inidir + "\\" + ftyp
+    dflt=os.path.join(inidir, ftyp)
     filepath = easygui.fileopenbox(default=dflt,msg=txt,filetypes=ftyp,multiple=False)
     if filepath is None:
         easygui.msgbox(msg='Nothing selected, nothing to do. Goodbye!')
         sys.exit()
     return filepath
 
-
 #%% Read files
 
 def Read_Met(paths):
     '''
-    reads single or multiple met data .csv files and combines if mulpiple
-    added option to load .txt format
+    reads single or multiple met data .csv files and combines if mulpiple.
+    added option to load .txt format, changed to default
     '''
     print('Reading met file...')
     
@@ -222,7 +207,6 @@ def Hourly_Cm(fit,met,runid):
         B = f.B[i]
         pnum=f.PltNum[i]
         fitid=runid+str(pnum)
-
         conc[fitid]=Calc_Cm(Cmax,WDc,Uc,A,B,hrly.WD,hrly.WS)
         
     conc[runid]=conc.max(axis=1)
@@ -278,7 +262,7 @@ def Hrly_Runs(fit,met):
         data[r]=Hourly_Cm(fit,met,r)
     return data
         
-def All_Probs(fit,crit,hrly):
+def All_Probs(fit,crit,hrly,met):
     '''
     Create results dataframe with probs for each run/crit combo
 
@@ -288,6 +272,13 @@ def All_Probs(fit,crit,hrly):
     crits=crit.unique()
     IDs=[]
     cols=['RunNum','RunLet','Cmax','WDc','WSc','Crit','Prob','Hrs']
+    
+    
+    # specify operating hours to consider
+    op_hrs=Get_Op_Hrs()
+    h=hrly.copy()
+    # set concentartiosn outside operating hours to 0
+    h[~met.H.isin(op_hrs)]=0
     
     # first loop to create list of IDs
     for c in crits:
@@ -307,7 +298,7 @@ def All_Probs(fit,crit,hrly):
         wdc=fit[fit.RunID==r].WDc.values.astype(int)
         wsc=fit[fit.RunID==r].WSc.values
         
-        series=hrly[r]
+        series=h[r]
         
         for c in crits:
             ID=str(r)+str(c)
@@ -320,7 +311,7 @@ def All_Probs(fit,crit,hrly):
             data.loc[ID,'WSc']=wsc
             
     data.Hrs=data.Prob*365*24 
-    return data
+    return data, op_hrs
     
 def Calc_DV(series, DV):
     """
@@ -333,47 +324,16 @@ def Calc_DV(series, DV):
     val=round(s.index.size*(1-(DV/100)))
     return round(s[val],2)
 
-#%% experiment to plot prob as color on windrose 
-def Calc_prob_WS(WS, WD, met, wd_band):
-    """
-    Calc % time is exceeded for a specific WD
-    """
-    n=len(met)                          # total hours
-    d=met.copy()
-    
-    # take +- deg on either side of WD
-    wdmin=WD-wd_band
-    wdmax=WD+wd_band
-    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
-    
-    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
-    wds[wds<=0]=wds[wds<=0]+360
-    
-    d=d[d.WD.isin(wds)]                 # filter to specific WD
-    c=sum(d.WS>=WS)                     # count # of hrs at or above WS
-    p=c/n*100                           # calc percent of total hours
-        
-    return p
 
-
-#%% Extras and QA
+#%% QA & plots
 
 def MetQA(met):
+    """
+    Perform all QA checks and data filtering
+    """
     df=met.copy()
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
-    
-    # move this to probabilities calculations, always read and calc Cm for all hours
-# =============================================================================
-#     ###     hours outside of specified window - experimental
-#     t1,t2=Get_Op_Hrs()
-#     print('\nThe following data has been ignored:')
-#     c=sum(~df.H.between(t1,t2))
-#     p=round(c/n*100,2)
-#     print("{} hours outside of operating window ({}-{})".format(c,t1,t2))
-#     df=df[df.H.between(t1,t2)]
-#     ###
-# =============================================================================
     
     #data QA
     print('\nThe following data has been converted to zero WS:')
@@ -402,12 +362,6 @@ def MetQA(met):
     print("{} NaN's in WS ({}%)".format(c,p))
     df.WS=df.WS.fillna(0)
     
-    # check for outliers in WS
-    c=sum(df.WS>45)
-    p=round(c/n*100,2)
-    print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
-    df.loc[df[df.WS>45].index,['WS','WD']]=0,999
-    
 # =============================================================================
 #     # remove calms
 #     c=sum(df.WS<1)
@@ -428,6 +382,12 @@ def MetQA(met):
     p=round(c/n*100,2)
     print('{} calm hours (WS<1) ({}%)'.format(c,p))
     
+    # Outliers in WS
+    c=sum(df.WS>45)
+    p=round(c/n*100,2)
+    print("{} hours WS exceeds 45 m/s (100 mph)".format(c))
+    #df.loc[df[df.WS>45].index,['WS','WD']]=0,999
+    
     # Max WS
     print('Max WS is: {} m/s'.format(max(df.WS)))
     
@@ -440,7 +400,7 @@ def MetQA(met):
     df.reset_index(drop=True,inplace=True)
     
     if easygui.ynbox('Generate wind rose plot?'):
-        print('Close plot to continue...')
+        print('Creating wind rose...')
         probs=WindRose(df)
         return df, probs
     
@@ -452,6 +412,9 @@ def MetQA(met):
     
     
 def cbScale(bounds):
+    """
+    Set up scalar-mappable (sm) for colorbar in plots 
+    """
     # plot settings
     mpl.rcdefaults()            # reset to defaults
     styles=plt.style.available  # save all plot styles to  list
@@ -466,14 +429,22 @@ def cbScale(bounds):
     return sm    
     
 def Get_Op_Hrs():
+    """
+    GUI to select operating hours to consider
+    """
     choices=range(24)
     msg='Select Operating Hours'
-    OpHrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
-    if  OpHrs is None: sys.exit()
-    OpHrs = [int(i) for i in OpHrs]
-    return OpHrs
+    print('Select operating hours from list:')
+    op_hrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
+    if  op_hrs is None: sys.exit()
+    # convert to int
+    op_hrs = [int(i) for i in op_hrs]
+    return op_hrs
     
 def WindRose(met_QA):
+    """
+    Generate windrose from data for QA comparison
+    """
     #generate a windrose for QA comparison
     data = met_QA[met_QA.WD!=999].copy() 
     
@@ -484,14 +455,24 @@ def WindRose(met_QA):
     
     # hack to only calc all unique pairs of WS & WD, instead of all hours (slow)
     data['prob']=''
+    
+    #setup to update command line in-place
+    print("Plotting...", end="")
+    
     for wd in WDu:
         ws_i=data[data.WD==wd].WS.unique()
         ws_i.sort()
         for ws in ws_i:
-            print('WD:',wd,' WS:',ws)
+            # supposed to clear previous line
+            print("\r", end="")
+            disp='WD:{} WS:{}'.format(round(wd),round(ws))
+            d=f"{disp:<15}"
+            print(d, end="")
             p=Calc_prob_WS(ws,wd,data,wd_band)
             valid=data[(data.WS==ws) & (data.WD==wd)]
             data.loc[valid.index,'prob']=p
+    
+    print('\nWindrose complete...')
     
     # sort to plot high probs last to show on 'top'
     data=data.sort_values(by=['prob'])
@@ -520,12 +501,34 @@ def WindRose(met_QA):
                     y= .5,
                     x= 2.5,
                     )
-
+    ax.set_rmax(25)
     plt.tight_layout()
     plt.savefig(os.path.join(td,'QA_windrose.png'))
     plt.show()
     return data
+
+
+def Calc_prob_WS(WS, WD, met, wd_band):
+    """
+    Calc % time is exceeded for a specific WD
+    """
+    n=len(met)                          # total hours
+    d=met.copy()
     
+    # take +- deg on either side of WD
+    wdmin=WD-wd_band
+    wdmax=WD+wd_band
+    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
+    
+    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
+    wds[wds<=0]=wds[wds<=0]+360
+    
+    d=d[d.WD.isin(wds)]                 # filter to specific WD
+    c=sum(d.WS>=WS)                     # count # of hrs at or above WS
+    p=c/n*100                           # calc percent of total hours
+        
+    return p    
+
 
 #%% Startup & File selection
 print('Use GUI to select met data file(s)...') 
@@ -539,10 +542,10 @@ fitpath=Get_Fit(td)
 critpath=Get_Crit(td)
 
 print('Use GUI to enter a label for output file...')
-label=easygui.enterbox('Enter a label for output file:')
+label=easygui.enterbox('Enter a label for output file (if desired):')
 if label is None: sys.exit()
 
-#%% Load data from saved files , BETA
+#%% Load data from saved files if selected
 
 # look for previous save data
 pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
@@ -557,16 +560,14 @@ elif LoadSave:
     with open(pklpath, 'rb') as handle:
         old_dict = pickle.load(handle)
         
-t0 = datetime.datetime.now() 
-#print('Reading fit and crit files...')    
+t0 = datetime.datetime.now()   
 fit=Read_Fit(fitpath)
 crit=Read_Crit(critpath)
 
 fitname=os.path.basename(fitpath)
 proj=fitname[:fitname.find('fit')]
 
-#%% Append old hourly data if needed, BETA
-
+#%% Append old hourly data if needed
 if LoadSave:
     # unpack saved data
     fit_old=old_dict['fit']
@@ -624,7 +625,7 @@ else:
 
 #%% Calculate probs
 
-results=All_Probs(fit,crit,hrly)
+results, op_hrs = All_Probs(fit,crit,hrly,met_QA)
 
 #%% Save
 savefolder=os.path.join(td,'Prob_Out')
@@ -643,7 +644,7 @@ print('PKL file Saved...')
 # hourly Cm 
 hrly_out=met_QA.copy()
 hrly_out[hrly.columns]=hrly
-save_hrly=os.path.join(savefolder,proj+'_hourly.csv')
+save_hrly=os.path.join(savefolder,proj+'_hourly_'+label+'.csv')
 hrly_out.to_csv(save_hrly, index=False)
 print('Hourly Cm Saved...')
 
@@ -651,6 +652,13 @@ print('Hourly Cm Saved...')
 save_probs=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
 results.to_csv(save_probs)
 print('Probs Saved...')
+
+# operating hours
+op_path=os.path.join(savefolder,proj+'_OpHours_'+label+'.txt')
+with open(op_path, 'w') as text:
+    for hr in op_hrs:
+        text.write("{}\n".format(hr))
+
 
 #%% done
 t1=datetime.datetime.now()
