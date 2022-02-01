@@ -30,7 +30,7 @@ try:
 except ModuleNotFoundError as err:
     input(str(err) +' \n Press enter to exit')
     
-#%% File selections
+#%% File selections & GUIs
 
 def Get_Met():
     #starts file selection at location of this script
@@ -67,6 +67,19 @@ def Get_Crit(Targdir):
         easygui.msgbox(msg='Nothing selected, nothing to do. Goodbye!')
         sys.exit()
     return filepath
+
+def Get_Op_Hrs():
+    """
+    GUI to select operating hours to consider
+    """
+    choices=range(24)
+    msg='Select Operating Hours'
+    print('Select operating hours from list:')
+    op_hrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
+    if  op_hrs is None: sys.exit()
+    # convert to int
+    op_hrs = [int(i) for i in op_hrs]
+    return op_hrs
 
 #%% Read files
 
@@ -191,7 +204,7 @@ def Read_Fit(path):
 def Hourly_Cm(fit,met,runid):
     '''
     Generates hourly normalized concentrations for all fits with
-    a given run ID (e.g. 101A) and takes the max values from any corresponding fits
+    a given run ID (e.g. 101A) and takes the max values by hour
 
     '''
     print('Calculating concentrations for run {}'.format(runid))
@@ -238,7 +251,6 @@ def Calc_Cm(Cmax,WDc,Uc,A,B,WD,U):
                 Cm[i] = Cmax * np.exp((-A)*((1/U[i])-(1/Uc))**2) * np.exp(-(((WD_Bias)/B)**2))      
         return Cm 
     
-    
 def Calc_Prob(series, crit):
     """
     Calculate probability for a series of values exceeding given criteria in Cm.
@@ -247,7 +259,40 @@ def Calc_Prob(series, crit):
     n=len(series)
     c=sum(series>=crit)
     prob=c/n
-    return prob  
+    return prob 
+
+def Calc_DV(series, DV):
+    """
+    Calculate design value for a series of values given DV in percent.
+    e.g. 1% design value DV=1
+    """
+    s=series.copy()
+    s.sort_values(inplace=True)
+    s=s.reset_index(drop=True)
+    val=round(s.index.size*(1-(DV/100)))
+    return round(s[val],2)
+
+def Calc_prob_WS(WS, WD, met, wd_band):
+    """
+    Calc % time is exceeded for a specific WD
+    +- bounds
+    """
+    n=len(met)                          # total hours
+    d=met.copy()
+    
+    # take +- deg on either side of WD
+    wdmin=WD-wd_band
+    wdmax=WD+wd_band
+    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
+    
+    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
+    wds[wds<=0]=wds[wds<=0]+360
+    
+    d=d[d.WD.isin(wds)]                 # filter to specific WD
+    c=sum(d.WS>=WS)                     # count # of hrs at or above WS
+    p=c/n*100                           # calc percent of total hours
+        
+    return p   
 
 #%% Operations
 
@@ -273,12 +318,25 @@ def All_Probs(fit,crit,hrly,met):
     IDs=[]
     cols=['RunNum','RunLet','Cmax','WDc','WSc','Crit','Prob','Hrs']
     
-    
+    # TODO: work in progress, on the fence between two methods 
+    ####vvvv    
     # specify operating hours to consider
     op_hrs=Get_Op_Hrs()
     h=hrly.copy()
-    # set concentartiosn outside operating hours to 0
-    h[~met.H.isin(op_hrs)]=0
+    
+# =============================================================================
+#     # 1:    set Cm outside operating hours to 0
+#     #       includes all hours in probs
+#     #       Cannot make probs worse
+#     h[~met.H.isin(op_hrs)]=0
+# =============================================================================
+    
+    # 2:    limit data to only operating hou6-18rs
+    #       includes only op hours in probs
+    #       can make probs worse
+    h=h[met.H.isin(op_hrs)]
+    
+    ####^^^^
     
     # first loop to create list of IDs
     for c in crits:
@@ -312,17 +370,6 @@ def All_Probs(fit,crit,hrly,met):
             
     data.Hrs=data.Prob*365*24 
     return data, op_hrs
-    
-def Calc_DV(series, DV):
-    """
-    Calculate design value for a series of values given DV in percent.
-    e.g. 1% design value DV=1
-    """
-    s=series.copy()
-    s.sort_values(inplace=True)
-    s=s.reset_index(drop=True)
-    val=round(s.index.size*(1-(DV/100)))
-    return round(s[val],2)
 
 
 #%% QA & plots
@@ -335,7 +382,7 @@ def MetQA(met):
     n=len(df)
     print('{} hours in met file(s) ({} years)'.format(n,round(n/8760,1)))
     
-    #data QA
+    ### data QA
     print('\nThe following data has been converted to zero WS:')
     
     # check for 999 or WD greater than 360 
@@ -362,15 +409,7 @@ def MetQA(met):
     print("{} NaN's in WS ({}%)".format(c,p))
     df.WS=df.WS.fillna(0)
     
-# =============================================================================
-#     # remove calms
-#     c=sum(df.WS<1)
-#     p=round(c/n*100,2)
-#     print("{} calm hours ({}%)".format(c,p))
-#     df.loc[df[df.WS<1].index,['WS','WD']]=0,999
-# =============================================================================
-    
-    # stats
+    ### stats
     print('\nFinal met data stats:')
     # Zero Wind
     c=sum(df.WS==0)         #count
@@ -428,19 +467,6 @@ def cbScale(bounds):
     sm.set_array([])
     return sm    
     
-def Get_Op_Hrs():
-    """
-    GUI to select operating hours to consider
-    """
-    choices=range(24)
-    msg='Select Operating Hours'
-    print('Select operating hours from list:')
-    op_hrs= easygui.multchoicebox(msg,msg,choices,preselect=choices)
-    if  op_hrs is None: sys.exit()
-    # convert to int
-    op_hrs = [int(i) for i in op_hrs]
-    return op_hrs
-    
 def WindRose(met_QA):
     """
     Generate windrose from data for QA comparison
@@ -456,22 +482,27 @@ def WindRose(met_QA):
     # hack to only calc all unique pairs of WS & WD, instead of all hours (slow)
     data['prob']=''
     
-    #setup to update command line in-place
-    print("Plotting...", end="")
+    # XXX: setup to update command line in-place
+    # end arg sets cursor at begininning of line
+    # text will be replaced 
+    print("DUMMY TEXT", end="")
     
     for wd in WDu:
         ws_i=data[data.WD==wd].WS.unique()
         ws_i.sort()
         for ws in ws_i:
-            # supposed to clear previous line
-            print("\r", end="")
+            #generate string to display
             disp='WD:{} WS:{}'.format(round(wd),round(ws))
+            # pad with spaces out to 15 chars, keeps display line clean
             d=f"{disp:<15}"
+            # clear previous line and write display string
+            print("\r", end="")
             print(d, end="")
             p=Calc_prob_WS(ws,wd,data,wd_band)
             valid=data[(data.WS==ws) & (data.WD==wd)]
             data.loc[valid.index,'prob']=p
-    
+            
+    # start on new line and stop updating in place
     print('\nWindrose complete...')
     
     # sort to plot high probs last to show on 'top'
@@ -505,29 +536,7 @@ def WindRose(met_QA):
     plt.tight_layout()
     plt.savefig(os.path.join(td,'QA_windrose.png'))
     plt.show()
-    return data
-
-
-def Calc_prob_WS(WS, WD, met, wd_band):
-    """
-    Calc % time is exceeded for a specific WD
-    """
-    n=len(met)                          # total hours
-    d=met.copy()
-    
-    # take +- deg on either side of WD
-    wdmin=WD-wd_band
-    wdmax=WD+wd_band
-    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
-    
-    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
-    wds[wds<=0]=wds[wds<=0]+360
-    
-    d=d[d.WD.isin(wds)]                 # filter to specific WD
-    c=sum(d.WS>=WS)                     # count # of hrs at or above WS
-    p=c/n*100                           # calc percent of total hours
-        
-    return p    
+    return data 
 
 
 #%% Startup & File selection
@@ -560,8 +569,9 @@ elif LoadSave:
     try:
         with open(pklpath, 'rb') as handle:
             old_dict = pickle.load(handle)
-    except AttributeError as err:
-        easygui.msgbox(msg="Issue loading save file: {}".format(err))
+    except:
+        cont=easygui.msgbox(msg="Issue loading save file.\nAll concentrations will be re-calculated, press ok to continue...")
+        if cont==None: sys.exit()
         LoadSave=False
         
 t0 = datetime.datetime.now()   
