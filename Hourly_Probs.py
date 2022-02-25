@@ -438,10 +438,11 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
-    if easygui.ynbox('Generate wind rose plot?'):
-        print('Creating wind rose...')
-        probs=WindRose(df)
-        return df, probs
+    if not os.path.exists(plot_path):
+        if easygui.ynbox('Generate wind rose plot?'):
+            print('Creating wind rose...')
+            wr=WindRose(df)
+            return df, wr
     
     elif easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
         plt.close()
@@ -457,9 +458,13 @@ def cbScale(bounds):
     # plot settings
     mpl.rcdefaults()            # reset to defaults
     styles=plt.style.available  # save all plot styles to  list
-    plt.style.use(styles[12])   # set style
+    plt.style.use(styles[14])   # set style
     
-    cmap='jet'
+    #cmap='jet'
+    #cmap='turbo'
+    #cmap='gist_ncar'
+    cmap='nipy_spectral'
+    
     s=np.arange(bounds[0],bounds[1]+1,1)
     norm = mpl.colors.Normalize()
     norm.autoscale(s)
@@ -479,22 +484,23 @@ def WindRose(met_QA):
     WDu.sort()
     wd_band=10  # set deg +- for probability calcs
     
-    # hack to only calc all unique pairs of WS & WD, instead of all hours (slow)
+    
     data['prob']=''
     
-    # XXX: setup to update command line in-place
+    # XXX: setup to update command line in-place - doesnt work well in spyder
     # end arg sets cursor at begininning of line
     # text will be replaced 
     print("DUMMY TEXT", end="")
     
+    # hack to only calc all unique pairs of WS & WD, instead of all hours (slow)
     for wd in WDu:
-        ws_i=data[data.WD==wd].WS.unique()
-        ws_i.sort()
-        for ws in ws_i:
+        ws_u=data[data.WD==wd].WS.unique()
+        ws_u.sort()
+        for ws in ws_u:
             #generate string to display
             disp='WD:{} WS:{}'.format(round(wd),round(ws))
-            # pad with spaces out to 15 chars, keeps display line clean
-            d=f"{disp:<15}"
+            # pad with spaces out to 30 chars, keeps display line clean
+            d=f"{disp:<30}"
             # clear previous line and write display string
             print("\r", end="")
             print(d, end="")
@@ -505,6 +511,9 @@ def WindRose(met_QA):
     # start on new line and stop updating in place
     print('\nWindrose complete...')
     
+    ### test to limit to just unique wd/ws pairs
+    data=data.drop_duplicates(subset=['WD','WS'])
+    
     # sort to plot high probs last to show on 'top'
     data=data.sort_values(by=['prob'])
     
@@ -513,7 +522,7 @@ def WindRose(met_QA):
     r=data.WS
     colors=data.prob
     sm=cbScale([min(colors),max(colors)])
-    a=2
+    s=2
 
     fig = plt.figure(figsize=(7,6))
     ax = fig.add_subplot(111, projection='polar')
@@ -521,7 +530,7 @@ def WindRose(met_QA):
     ax.set_theta_direction(-1)
     ax.set_rorigin(-1)
 
-    ax.scatter(theta, r, c=colors, alpha=1, cmap=sm.cmap, s=a)
+    ax.scatter(theta, r, c=colors, alpha=1, cmap=sm.cmap, s=s)
     cb=plt.colorbar(sm)
     title='% Probability that WS is exceeded at WD +-{} degrees'.format(round(wd_band))
     cb.ax.set_title(title,
@@ -534,7 +543,7 @@ def WindRose(met_QA):
                     )
     ax.set_rmax(25)
     plt.tight_layout()
-    plt.savefig(os.path.join(td,'QA_windrose.png'))
+    plt.savefig(plot_path)
     plt.show()
     return data 
 
@@ -543,8 +552,9 @@ def WindRose(met_QA):
 print('Use GUI to select met data file(s)...') 
 
 metpaths,td=Get_Met()
+plot_path=os.path.join(td,'QA_windrose.png')
 met=Read_Met(metpaths)
-met_QA,probs=MetQA(met)
+met_QA,wr=MetQA(met)
 
 print('Use GUI to select fit and crit files...') 
 fitpath=Get_Fit(td)
