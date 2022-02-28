@@ -580,6 +580,7 @@ elif LoadSave:
         with open(pklpath, 'rb') as handle:
             old_dict = pickle.load(handle)
     except:
+        print('Issue loading saved data...')
         cont=easygui.msgbox(msg="Issue loading save file.\nAll concentrations will be re-calculated, press ok to continue...")
         if cont==None: sys.exit()
         LoadSave=False
@@ -690,3 +691,32 @@ print('Done!')
 dt= t1-t0
 dt=dt.seconds
 easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savefolder))  
+
+sys.exit() #remove me when barplots are ready
+#%% NEW Cell to test bar plotting
+fig, ax = plt.subplots()
+
+# =============================================================================
+# import random
+# vals = random.sample(range(1, 50), 24)
+# =============================================================================
+
+bins = op_hrs
+n=len(hrly_out)
+run='205A'
+crit=500
+
+
+vals=[]
+for h in op_hrs:
+    count=sum(hrly_out[hrly_out.H==h][run]>=crit)
+    vals.append(count/n*100)
+
+ax.bar(bins,vals)
+
+
+
+
+
+
+
