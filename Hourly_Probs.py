@@ -278,17 +278,18 @@ def Calc_prob_WS(WS, WD, met, wd_band):
     +- bounds
     """
     n=len(met)                          # total hours
-    d=met.copy()
-    
+
     # take +- deg on either side of WD
     wdmin=WD-wd_band
     wdmax=WD+wd_band
-    wds=np.arange(wdmin,wdmax+1,1)      # create list of degrees in 'window'
+
+    d=met.copy()
     
-    wds[wds>360]=wds[wds>360]-360       # correct wrap accross 0
-    wds[wds<=0]=wds[wds<=0]+360
-    
-    d=d[d.WD.isin(wds)]                 # filter to specific WD
+    # correct wrap accross 0 if needed
+    if wdmax >= 360: d=d[~d.WD.between(wdmax-360,wdmin)]
+    elif wdmin <= 0: d=d[~d.WD.between(wdmax,wdmin+360)]
+    else: d=d[d.WD.between(wdmin,wdmax)] 
+
     c=sum(d.WS>=WS)                     # count # of hrs at or above WS
     p=c/n*100                           # calc percent of total hours
         
@@ -482,7 +483,7 @@ def WindRose(met_QA):
     #probs stuff
     WDu=data.WD.unique()
     WDu.sort()
-    wd_band=10  # set deg +- for probability calcs
+    wd_band=11.25  # set deg +- for probability calcs
     
     
     data['prob']=''
@@ -541,7 +542,8 @@ def WindRose(met_QA):
                     y= .5,
                     x= 2.5,
                     )
-    ax.set_rmax(25)
+    
+    if max(r)>25: ax.set_rmax(25)
     plt.tight_layout()
     plt.savefig(plot_path)
     plt.show()
