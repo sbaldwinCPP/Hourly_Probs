@@ -93,8 +93,6 @@ def Read_Met(paths):
     met_ext=os.path.splitext(paths[0])[1]
     met=pd.DataFrame()
     
-    
-    
     if met_ext=='.csv':
         try:
             for file in paths:
@@ -323,7 +321,7 @@ def All_Probs(fit,crit,hrly,met):
     IDs=[]
     cols=['RunNum','RunLet','Cmax','WDc','WSc','Crit','Prob','Hrs']
     
-    # TODO: work in progress, on the fence between two methods 
+    # XXX: work in progress, on the fence between two methods 
     ####vvvv    
     # specify operating hours to consider
     op_hrs=Get_Op_Hrs()
@@ -516,7 +514,7 @@ def WindRose(met_QA):
     # start on new line and stop updating in place
     print('\nWindrose complete...')
     
-    ### test to limit to just unique wd/ws pairs
+    # limit to just unique wd/ws pairs
     data=data.drop_duplicates(subset=['WD','WS'])
     
     # sort to plot high probs last to show on 'top'
@@ -632,7 +630,8 @@ if LoadSave:
         
         # Append list of updated run to include any runs where a fit was dropped
         # TODO: append to concat
-        updated_runs=updated_runs.append(dropped_runs)
+        #updated_runs=updated_runs.append(dropped_runs)
+        updated_runs=pd.concat([updated_runs,dropped_runs]) 
         
         # find runs that have not changed
         good=repeats[~repeats.RunID.isin(updated_runs)]
@@ -643,7 +642,8 @@ if LoadSave:
         
         # calc new and updated hrly data
         # TODO: append to concat
-        calc_runs=new_runs.append(updated_runs)
+        #calc_runs=new_runs.append(updated_runs)
+        calc_runs=pd.concat([new_runs, updated_runs])
         calc_fits=fit[fit.RunID.isin(calc_runs)]
         new_hrly=Hrly_Runs(calc_fits,met_QA)
         
