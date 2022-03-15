@@ -93,11 +93,15 @@ def Read_Met(paths):
     met_ext=os.path.splitext(paths[0])[1]
     met=pd.DataFrame()
     
+    
+    
     if met_ext=='.csv':
         try:
             for file in paths:
                 data = pd.read_csv(file,skiprows=2,header=0) 
-                met = met.append(data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']].copy())
+                #met = met.append(data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']].copy())
+                # TODO: search program for all dataframe.append() and correct to pd.concat()
+                met = pd.concat([met,data[['Year','Month','Day','Hour','Wind Direction','Wind Speed']]])
             met.columns=('Y','M','D','H','WD','WS')
         except Exception as err:
             easygui.msgbox(msg="Issue loading met file: {}".format(err))
@@ -627,6 +631,7 @@ if LoadSave:
         dropped_runs=dropped.RunID.drop_duplicates() 
         
         # Append list of updated run to include any runs where a fit was dropped
+        # TODO: append to concat
         updated_runs=updated_runs.append(dropped_runs)
         
         # find runs that have not changed
@@ -637,6 +642,7 @@ if LoadSave:
         good_hrs=hrly_old[good_runs]
         
         # calc new and updated hrly data
+        # TODO: append to concat
         calc_runs=new_runs.append(updated_runs)
         calc_fits=fit[fit.RunID.isin(calc_runs)]
         new_hrly=Hrly_Runs(calc_fits,met_QA)
