@@ -24,6 +24,7 @@ try:
     import easygui
     import matplotlib as mpl
     import matplotlib.pyplot as plt
+    import openpyxl 
     
     print('All modules imported')
 
