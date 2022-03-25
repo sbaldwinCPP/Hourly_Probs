@@ -224,7 +224,8 @@ def Hourly_Cm(fit,met,runid):
         A = f.A[i]
         B = f.B[i]
         pnum=f.PltNum[i]
-        fitid=runid+str(pnum)
+        #fitid=runid+str(pnum)
+        fitid=runid+str(i) #changed to fit index instead of pltnum to handle duplicate pltnums
         conc[fitid]=Calc_Cm(Cmax,WDc,Uc,A,B,hrly.WD,hrly.WS)
         
     conc[runid]=conc.max(axis=1)
@@ -429,18 +430,15 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
-    if not os.path.exists(plot_path):
+    if not os.path.exists(plot_path):   # check if windrose file exists
         if easygui.ynbox('Generate wind rose plot?'):
             print('Creating wind rose...')
-            wr=WindRose(df)
-            return df, wr
-    
+            wr=WindRose(df)             # saved to variable for debugging, wr not used
     elif easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
         plt.close()
-        return df, None
-    
     else: sys.exit()
     
+    return df 
     
 def cbScale(bounds):
     """
@@ -478,7 +476,7 @@ def WindRose(met_QA):
     
     data['prob']=''
     
-    # XXX: setup to update command line in-place - doesnt work well in spyder
+    # XXX: setup to update command line in-place - doesnt work well in spyder/IDLE
     # end arg sets cursor at begininning of line
     # text will be replaced 
     print("DUMMY TEXT", end="")
@@ -546,7 +544,7 @@ print('Use GUI to select met data file(s)...')
 metpaths,td=Get_Met()
 plot_path=os.path.join(td,'QA_windrose.png')
 met=Read_Met(metpaths)
-met_QA,wr=MetQA(met)
+met_QA=MetQA(met)
 
 print('Use GUI to select fit and crit files...') 
 fitpath=Get_Fit(td)
@@ -659,9 +657,9 @@ with open(pklpath, 'wb') as handle:
 print('PKL file Saved...')
 
 # hourly Cm 
-hrly_out=met_QA.copy()
-hrly_out[hrly.columns]=hrly
+hrly_out=pd.concat([met_QA,hrly],axis=1) # updated to fix perfomance warning
 save_hrly=os.path.join(savefolder,proj+'_hourly_'+label+'.csv')
+print('Saving Hourly Cm file, may take a few minutes for large fit files...')
 hrly_out.to_csv(save_hrly, index=False)
 print('Hourly Cm Saved...')
 
