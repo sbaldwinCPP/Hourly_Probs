@@ -87,6 +87,32 @@ def Get_Op_Hrs(met):
     op_hrs = [float(i) for i in op_hrs]
     return op_hrs
 
+def Select_Options():
+    """
+    GUI to select options for program
+    """
+    # description of option
+    choices=['Probs',
+             'Hrly_Cm',
+             'Set_Op_Hrs',
+             'Wind_Rose',
+             'BarPlots']   
+    
+    msg='Select Program Option:'
+    print('Select program options from list:')
+    picks= easygui.multchoicebox(msg,msg,choices,preselect=0)
+    if  picks is None: 
+        easygui.msgbox(msg='Nothing selected, nothing to do. Goodbye!')
+        sys.exit()
+        
+    # pack into dictionary, keys are used downstream 
+    TF={}
+    for c in choices:
+        if c in picks: TF[c]=True
+        else: TF[c]=False
+    
+    return TF
+
 #%% Read files
 
 def Read_Met(paths):
@@ -312,7 +338,6 @@ def Hrly_Runs(fit,met):
     runs=fit.RunID.unique()
     data=pd.DataFrame()
     for r in runs:
-        #data[r]=Hourly_Cm(fit,met,r)
         data=pd.concat([data,Hourly_Cm(fit,met,r)],axis=1) # attempt to fix perfomance warning
     return data
         
@@ -327,10 +352,11 @@ def All_Probs(fit,crit,hrly,met):
     IDs=[]
     cols=['RunNum','RunLet','Cmax','WDc','WSc','Crit','Prob','Hrs']
     
-    # specify operating hours to consider
-    op_hrs=Get_Op_Hrs(met)
     h=hrly.copy()
-    h=h[met.H.isin(op_hrs)]
+    
+    if Options['Set_Op_Hrs']:
+        # specify operating hours to consider, defined outside this function
+        h=h[met.H.isin(op_hrs)]
     
     # first loop to create list of IDs
     for c in crits:
@@ -363,7 +389,7 @@ def All_Probs(fit,crit,hrly,met):
             data.loc[ID,'WSc']=wsc
             
     data.Hrs=data.Prob*365*24 
-    return data, op_hrs
+    return data
 
 
 #%% QA & plots
@@ -432,13 +458,12 @@ def MetQA(met):
 
     df.reset_index(drop=True,inplace=True)
     
-    if not os.path.exists(plot_path):   # check if windrose file exists
-        if easygui.ynbox('Generate wind rose plot?'):
-            print('Creating wind rose...')
-            wr=WindRose(df)             # saved to variable for debugging, wr not used
-    elif easygui.ynbox('See met data stats in command window.\nDo you want to continue?'): 
-        plt.close()
-    else: sys.exit()
+    if Options['Wind_Rose']:
+        plot_path=os.path.join(td,'QA_windrose.png')
+        if os.path.exists(plot_path):   # check if windrose file exists
+            if easygui.ynbox('Plot already exists.\nRe-generate wind rose plot?'):
+                wr=WindRose(df,plot_path)
+        else: wr=WindRose(df)
     
     return df 
     
@@ -463,7 +488,7 @@ def cbScale(bounds):
     sm.set_array([])
     return sm    
     
-def WindRose(met_QA):
+def WindRose(met_QA, plot_path):
     """
     Generate windrose from data for QA comparison
     """
@@ -544,45 +569,62 @@ def WindRose(met_QA):
 print('Use GUI to select met data file(s)...') 
 
 metpaths,td=Get_Met()
-plot_path=os.path.join(td,'QA_windrose.png')
 met=Read_Met(metpaths)
+
+Options=Select_Options()
+
 met_QA=MetQA(met)
 
-print('Use GUI to select fit and crit files...') 
-fitpath=Get_Fit(td)
-critpath=Get_Crit(td)
+if  Options['Hrly_Cm'] or Options['Probs']:
+    print('Use GUI to select fit file...')
+    fitpath=Get_Fit(td)
+    
+    if Options['Set_Op_Hrs']: op_hrs=Get_Op_Hrs(met)
+    else: 
+        op_hrs=met.H.unique()
+        op_hrs.sort()
+        op_hrs=list(op_hrs)
+    
+if  Options['Probs']:
+    print('Use GUI to select crit file...')
+    critpath=Get_Crit(td)
 
-print('Use GUI to enter a label for output file...')
-label=easygui.enterbox('Enter a label for output file (if desired):')
+print('Use GUI to enter a label for output files...')
+label=easygui.enterbox('Enter a label for output files (if desired):')
 if label is None: sys.exit()
 
 #%% Load data from saved files if selected
 
-# look for previous save data
-pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
-
-if os.path.isfile(pklpath):             #check if .pkl exists already   
-    LoadSave=easygui.ynbox("Saved data found, do you want to append & update it?")
+if  Options['Hrly_Cm'] or Options['Probs']:
+    # look for previous save data
+    pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
+    
+    if os.path.isfile(pklpath):             #check if .pkl exists already   
+        LoadSave=easygui.ynbox("Saved data found, do you want to append & update it?")
+    else: LoadSave=False
+    
+    if LoadSave is None: sys.exit()
+    elif LoadSave:
+        print('Loading saved data...')
+        try:
+            with open(pklpath, 'rb') as handle:
+                old_dict = pickle.load(handle)
+        except:
+            print('Issue loading saved data...')
+            cont=easygui.msgbox(msg="Issue loading save file.\nAll concentrations will be re-calculated, press ok to continue...")
+            if cont==None: sys.exit()
+            LoadSave=False
+    
+    fit=Read_Fit(fitpath)
+    fitname=os.path.basename(fitpath)
+    proj=fitname[:fitname.find('fit')]
+    
+    if Options['Probs']:
+        crit=Read_Crit(critpath)
+        
 else: LoadSave=False
 
-if LoadSave is None: sys.exit()
-elif LoadSave:
-    print('Loading saved data...')
-    try:
-        with open(pklpath, 'rb') as handle:
-            old_dict = pickle.load(handle)
-    except:
-        print('Issue loading saved data...')
-        cont=easygui.msgbox(msg="Issue loading save file.\nAll concentrations will be re-calculated, press ok to continue...")
-        if cont==None: sys.exit()
-        LoadSave=False
-        
-t0 = datetime.datetime.now()   
-fit=Read_Fit(fitpath)
-crit=Read_Crit(critpath)
-
-fitname=os.path.basename(fitpath)
-proj=fitname[:fitname.find('fit')]
+t0 = datetime.datetime.now() 
 
 #%% Append old hourly data if needed
 if LoadSave:
@@ -635,46 +677,53 @@ if LoadSave:
         hrly=good_hrs.copy()
         hrly[new_hrly.columns]=new_hrly.copy()
     
-else:
+elif  Options['Hrly_Cm'] or Options['Probs']:
     # if no save data found, run all fits
     hrly=Hrly_Runs(fit,met_QA)
 
-
 #%% Calculate probs
-
-results, op_hrs = All_Probs(fit,crit,hrly,met_QA)
+if Options['Probs']:
+    results = All_Probs(fit,crit,hrly,met_QA)
+    
+    if Options['BarPlots']:
+        print('Generating Bar Plots...')
+        print('... this is a placeholer, put a function here')
 
 #%% Save
-savefolder=os.path.join(td,'Prob_Out')
-if not os.path.exists(savefolder): os.makedirs(savefolder)
-
-# PKL 
-new_dict={}
-new_dict['hourly']=hrly
-new_dict['fit']=fit
-new_dict['met']=met_QA
-
-with open(pklpath, 'wb') as handle:
-    pickle.dump(new_dict, handle)
-print('PKL file Saved...')
-
-# hourly Cm 
-hrly_out=pd.concat([met_QA,hrly],axis=1) # updated to fix perfomance warning
-save_hrly=os.path.join(savefolder,proj+'_hourly_'+label+'.csv')
-print('Saving Hourly Cm file, may take a few minutes for large fit files...')
-hrly_out.to_csv(save_hrly, index=False)
-print('Hourly Cm Saved...')
-
-# probs
-save_probs=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
-results.to_csv(save_probs)
-print('Probs Saved...')
-
-# operating hours
-op_path=os.path.join(savefolder,proj+'_OpHours_'+label+'.txt')
-with open(op_path, 'w') as text:
-    for hr in op_hrs:
-        text.write("{}\n".format(hr))
+if Options['Hrly_Cm'] or Options['Probs']:
+    
+    savefolder=os.path.join(td,'Prob_Out')
+    if not os.path.exists(savefolder): os.makedirs(savefolder)
+    
+    # PKL 
+    new_dict={}
+    new_dict['hourly']=hrly
+    new_dict['fit']=fit
+    new_dict['met']=met_QA
+    
+    with open(pklpath, 'wb') as handle:
+        pickle.dump(new_dict, handle)
+    print('PKL file Saved...')
+    
+    # hourly Cm 
+    if Options['Hrly_Cm']:
+        hrly_out=pd.concat([met_QA,hrly],axis=1) # updated to fix perfomance warning
+        save_hrly=os.path.join(savefolder,proj+'_hourly_'+label+'.csv')
+        print('Saving Hourly Cm file, may take a few minutes for large fit files...')
+        hrly_out.to_csv(save_hrly, index=False)
+        print('Hourly Cm Saved...')
+    
+    # probs
+    if Options['Probs']:
+        save_probs=os.path.join(savefolder,proj+'_probs_'+label+'.csv')
+        results.to_csv(save_probs)
+        print('Probs Saved...')
+    
+    # operating hours
+    op_path=os.path.join(savefolder,proj+'_OpHours_'+label+'.txt')
+    with open(op_path, 'w') as text:
+        for hr in op_hrs:
+            text.write("{}\n".format(hr))
 
 
 #%% done
@@ -682,7 +731,8 @@ t1=datetime.datetime.now()
 print('Done!')
 dt= t1-t0
 dt=dt.seconds
-easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savefolder))  
+try: easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savefolder))  
+except NameError: easygui.msgbox(msg="Done!\nNothing else to do.")
 
 sys.exit() #remove me when barplots are ready
 
