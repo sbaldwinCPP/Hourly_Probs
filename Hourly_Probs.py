@@ -312,7 +312,8 @@ def Hrly_Runs(fit,met):
     runs=fit.RunID.unique()
     data=pd.DataFrame()
     for r in runs:
-        data[r]=Hourly_Cm(fit,met,r)
+        #data[r]=Hourly_Cm(fit,met,r)
+        data=pd.concat([data,Hourly_Cm(fit,met,r)],axis=1) # attempt to fix perfomance warning
     return data
         
 def All_Probs(fit,crit,hrly,met):
