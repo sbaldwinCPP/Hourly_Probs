@@ -610,7 +610,6 @@ def barplot(fit,crit,op_hrs,met_QA,hrly):
         plt.close()
         #plt.show()
 
-
 def Select_Crits(crit):
     """
     GUI to select crit(s) to consider for bar plots
@@ -658,7 +657,6 @@ if not Options['Probs'] and (Options['Set_Op_Hrs'] or Options['Bar_Plots']):
         Options=Select_Options()
         if Options['Probs'] and (Options['Set_Op_Hrs'] or Options['Bar_Plots']): loop=False
 
-
 #hourly Cm needed for calcs
 if  Options['Hrly_Cm'] or Options['Probs']:
     print('Use GUI to select fit file...')
@@ -674,8 +672,6 @@ if  Options['Hrly_Cm'] or Options['Probs']:
 if  Options['Probs']:
     print('Use GUI to select crit file...')
     critpath=Get_Crit(td)
-
-
 
 #%% RUN
 met_QA=MetQA(met)
@@ -780,7 +776,6 @@ if Options['Probs']:
         barplot(fit,crit,op_hrs,met_QA,hrly)
         print('Bar Plots Saved...')
 
-
 #%% Save
 if Options['Hrly_Cm'] or Options['Probs']:
     
@@ -825,11 +820,3 @@ dt= t1-t0
 dt=dt.seconds
 try: easygui.msgbox(msg="Done!\nProcess took: {} seconds\nResults saved here: {}".format(dt,savefolder))  
 except NameError: easygui.msgbox(msg="Done!\nNothing else to do.")
-
-sys.exit() #remove me when barplots are ready
-
-
-
-
-
-
