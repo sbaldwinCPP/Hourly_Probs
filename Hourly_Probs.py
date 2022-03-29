@@ -96,7 +96,7 @@ def Select_Options():
              'Hrly_Cm',
              'Set_Op_Hrs',
              'Wind_Rose',
-             'BarPlots']   
+             'Bar_Plots']   
     
     msg='Select Program Option:'
     print('Select program options from list:')
@@ -564,21 +564,107 @@ def WindRose(met_QA, plot_path):
     plt.show()
     return data 
 
+#%% NEW Cell to test bar plotting
+# based on : https://matplotlib.org/stable/gallery/lines_bars_and_markers/barchart.html
 
-#%% Startup & File selection
+def barplot(fit,crit,op_hrs,met_QA,hrly):
+    hrly_out=pd.concat([met_QA,hrly],axis=1) # updated to fix perfomance warning
+    labels = op_hrs
+    n=len(hrly_out[met.H.isin(op_hrs)])
+    
+    runs=Select_Runs(fit)           # GUI to select run
+    crits=Select_Crits(crit)        # GUI to select crit(s)
+    
+    for run in runs:
+        x = np.arange(len(labels)) + min(labels)  # the label locations
+        width = .8/len(crits)       # the width of the bars
+        
+        d={}                        # empty dictionary to fill
+        for c in crits:
+            d[c]=[]                 # empty list keyed to crit
+            for h in op_hrs:        # calc prob of exceedance by hour
+                count=sum(hrly_out[hrly_out.H==h][run]>=c)
+                d[c].append(count/n*100)
+        
+        fig, ax = plt.subplots()
+        
+        # plot bar for each crit and hour
+        for i in range(len(crits)):
+            c=crits[i]
+            bar_pos= x - len(crits)*width/2 + width/2 + width*i
+            rect = ax.bar(bar_pos, d[c], width, label=c)
+        
+        # Add labels, title, legend
+        ax.set_ylabel('Probability (%)')
+        ax.set_xlabel('Hour of Operation (0-23)')
+        ax.set_xticks(labels)
+        ax.set_title('Run {}: Percent time criterion is exceeded by hour\n\n'.format(run))
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.1), ncol=len(crits))
+        
+        bplotfolder=os.path.join(td,'Bar_Plots')
+        if not os.path.exists(bplotfolder): os.makedirs(bplotfolder)
+        bplot_path=os.path.join(bplotfolder,'Run_{}_{}.png'.format(run,label))
+        
+        plt.tight_layout()
+        plt.savefig(bplot_path)
+        plt.close()
+        #plt.show()
+
+
+def Select_Crits(crit):
+    """
+    GUI to select crit(s) to consider for bar plots
+    """
+    choices=crit.unique()
+    choices.sort()
+    choices=list(choices)
+    
+    msg='Select criteria to include'
+    print('Select criteria from list:')
+    picks= easygui.multchoicebox(msg,msg,choices,preselect=None)
+    if  picks is None: sys.exit()
+    # convert to int
+    picks = [int(i) for i in picks]
+    return picks
+
+def Select_Runs(fit):
+    """
+    GUI to select run to consider for bar plots
+    """
+    choices=fit.RunID.unique()
+    choices.sort()
+    choices=list(choices)
+    
+    msg='Select run(s)'
+    print('Select run(s) from list:')
+    picks = easygui.multchoicebox(msg,msg,choices,preselect=None)
+    if  picks is None: sys.exit()
+    return picks
+
+
+#%% Startup, File selection, Input Checks
 print('Use GUI to select met data file(s)...') 
 
 metpaths,td=Get_Met()
 met=Read_Met(metpaths)
 
 Options=Select_Options()
+# check for co-requirements
+# XXX: try a while loop
+if not Options['Probs'] and (Options['Set_Op_Hrs'] or Options['Bar_Plots']):
+    loop=True
+    easygui.msgbox('Probabilities are required for one or more of the selected options.\nPlease try again.')
+    while loop:
+        Options=Select_Options()
+        if Options['Probs'] and (Options['Set_Op_Hrs'] or Options['Bar_Plots']): loop=False
 
-met_QA=MetQA(met)
 
+#hourly Cm needed for calcs
 if  Options['Hrly_Cm'] or Options['Probs']:
     print('Use GUI to select fit file...')
     fitpath=Get_Fit(td)
     
+    # if op hrs are selected
     if Options['Set_Op_Hrs']: op_hrs=Get_Op_Hrs(met)
     else: 
         op_hrs=met.H.unique()
@@ -589,12 +675,15 @@ if  Options['Probs']:
     print('Use GUI to select crit file...')
     critpath=Get_Crit(td)
 
+
+
+#%% RUN
+met_QA=MetQA(met)
 print('Use GUI to enter a label for output files...')
 label=easygui.enterbox('Enter a label for output files (if desired):')
 if label is None: sys.exit()
 
-#%% Load data from saved files if selected
-
+# Load data from saved files if selected
 if  Options['Hrly_Cm'] or Options['Probs']:
     # look for previous save data
     pklpath=os.path.join(td,'PROBS.pkl')    #path of pickled (saved) dataframe
@@ -624,6 +713,7 @@ if  Options['Hrly_Cm'] or Options['Probs']:
         
 else: LoadSave=False
 
+# start timer
 t0 = datetime.datetime.now() 
 
 #%% Append old hourly data if needed
@@ -685,9 +775,11 @@ elif  Options['Hrly_Cm'] or Options['Probs']:
 if Options['Probs']:
     results = All_Probs(fit,crit,hrly,met_QA)
     
-    if Options['BarPlots']:
+    if Options['Bar_Plots']:
         print('Generating Bar Plots...')
-        print('... this is a placeholer, put a function here')
+        barplot(fit,crit,op_hrs,met_QA,hrly)
+        print('Bar Plots Saved...')
+
 
 #%% Save
 if Options['Hrly_Cm'] or Options['Probs']:
@@ -736,72 +828,7 @@ except NameError: easygui.msgbox(msg="Done!\nNothing else to do.")
 
 sys.exit() #remove me when barplots are ready
 
-#%% NEW Cell to test bar plotting
-# based on : https://matplotlib.org/stable/gallery/lines_bars_and_markers/barchart.html
 
-def barplot(fit,crit,op_hrs,met,hrly_out):
-    labels = op_hrs
-    n=len(hrly_out[met.H.isin(op_hrs)])
-    
-    run=Select_Run(fit)         # GUI to select run
-    crits=Select_Crits(crit)    # GUI to select crit(s)
-    
-    x = np.arange(len(labels))  # the label locations
-    width = .8/len(crits)       # the width of the bars
-    
-    d={}                        # empty dictionary to fill
-    for c in crits:
-        d[c]=[]                 # empty list keyed to crit
-        for h in op_hrs:        # calc prob of exceedance by hour
-            count=sum(hrly_out[hrly_out.H==h][run]>=c)
-            d[c].append(count/n*100)
-    
-    fig, ax = plt.subplots()
-    
-    # plot bar for each crit and hour
-    for i in range(len(crits)):
-        c=crits[i]
-        bar_pos= x - len(crits)*width/2 + width/2 + width*i
-        rect = ax.bar(bar_pos, d[c], width, label=c)
-    
-    # Add labels, title, legend
-    ax.set_ylabel('Probability (%)')
-    ax.set_xlabel('Hour of Operation (0-23)')
-    ax.set_title('Run {}: Percent time criterion is exceeded by hour\n\n'.format(run))
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.1), ncol=len(crits))
-    
-    plt.show()
-    # add code to save plots here
-
-def Select_Crits(crit):
-    """
-    GUI to select crit(s) to consider for bar plots
-    """
-    choices=crit.unique()
-    choices.sort()
-    choices=list(choices)
-    
-    msg='Select criteria to include'
-    print('Select criteria from list:')
-    picks= easygui.multchoicebox(msg,msg,choices,preselect=None)
-    if  picks is None: sys.exit()
-    # convert to int
-    picks = [int(i) for i in picks]
-    return picks
-
-def Select_Run(fit):
-    """
-    GUI to select run to consider for bar plots
-    """
-    choices=fit.RunID.unique()
-    choices.sort()
-    choices=list(choices)
-    
-    msg='Select run'
-    print('Select run from list:')
-    pick = easygui.choicebox(msg,msg,choices)
-    if  pick is None: sys.exit()
-    return pick
 
 
 
